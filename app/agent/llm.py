@@ -13,6 +13,11 @@ OLLAMA_MODEL = os.getenv(
     "qwen2.5-coder:3b",
 )
 
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.8-flash",
+)
+
 HF_MODEL = os.getenv(
     "HF_MODEL",
     "Qwen/Qwen2.5-Coder-3B-Instruct",
@@ -41,7 +46,14 @@ def generate_plan_and_patch(
     )
 
     try:
-        if AI_PROVIDER == "huggingface":
+        if AI_PROVIDER == "gemini":
+            content = generate_with_gemini(
+                prompt=prompt,
+                system_prompt=SYSTEM_PROMPT,
+            )
+            model_name = GEMINI_MODEL
+
+        elif AI_PROVIDER == "huggingface":
             content = generate_with_huggingface(
                 prompt=prompt,
                 system_prompt=SYSTEM_PROMPT,
@@ -159,9 +171,13 @@ def generate_plan_and_patch(
             "test_command": "pytest -q",
             "demo_mode": True,
             "model": (
-                HF_MODEL
-                if AI_PROVIDER == "huggingface"
-                else OLLAMA_MODEL
+                GEMINI_MODEL
+                if AI_PROVIDER == "gemini"
+                else (
+                    HF_MODEL
+                    if AI_PROVIDER == "huggingface"
+                    else OLLAMA_MODEL
+                )
             ),
             "provider": AI_PROVIDER,
             "task": task,
@@ -195,6 +211,40 @@ def generate_with_ollama(
     )
 
     return response["message"]["content"]
+
+
+def generate_with_gemini(
+    prompt: str,
+    system_prompt: str,
+) -> str:
+    """Generate JSON using the Google Gemini API."""
+
+    from google import genai
+    from google.genai import types
+
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        raise ValueError(
+            "GEMINI_API_KEY is not configured."
+        )
+
+    client = genai.Client(
+        api_key=api_key
+    )
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0,
+            max_output_tokens=4000,
+            response_mime_type="application/json",
+        ),
+    )
+
+    return response.text
 
 
 def generate_with_huggingface(
