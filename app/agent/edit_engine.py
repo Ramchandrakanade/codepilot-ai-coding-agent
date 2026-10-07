@@ -280,6 +280,94 @@ def _add_import(
     )
 
 
+def _python_module_from_path(path: str) -> str:
+    """
+    Convert a repository Python path into an importable module path.
+
+    Example:
+        qc_toolkit/report.py
+        -> qc_toolkit.report
+    """
+
+    normalized = path.replace("\\", "/")
+
+    if not normalized.endswith(".py"):
+        raise ValueError(
+            f"Cannot create Python module name from '{path}'."
+        )
+
+    module = normalized[:-3].replace("/", ".")
+
+    if module.endswith(".__init__"):
+        module = module[:-9]
+
+    return module
+
+
+def _ensure_test_imports(
+    source: str,
+    test_code: str,
+    test_path: str,
+    added_functions: dict[str, str],
+) -> str:
+    """
+    Automatically import newly-added production functions used by tests.
+
+    Example:
+
+        add_function:
+            qc_toolkit/report.py
+            calculate_average
+
+        add_test:
+            tests/test_report_and_cli.py
+
+    If the test references calculate_average(), this automatically
+    adds:
+
+        from qc_toolkit.report import calculate_average
+    """
+
+    if not added_functions:
+        return source
+
+    try:
+        test_tree = ast.parse(test_code)
+    except SyntaxError:
+        return source
+
+    # Names referenced anywhere in the generated test.
+    referenced_names = {
+        node.id
+        for node in ast.walk(test_tree)
+        if isinstance(node, ast.Name)
+    }
+
+    updated = source
+
+    for function_name, source_path in added_functions.items():
+
+        if function_name not in referenced_names:
+            continue
+
+        # Do not import a function from itself.
+        if source_path == test_path:
+            continue
+
+        module = _python_module_from_path(source_path)
+
+        import_statement = (
+            f"from {module} import {function_name}"
+        )
+
+        updated = _add_import(
+            updated,
+            import_statement,
+        )
+
+    return updated
+
+
 def _replace_function(
     source: str,
     target: str,
@@ -399,6 +487,43 @@ def apply_structured_edits(
 
     protected = _protected_names(task)
 
+    # ---------------------------------------------------------
+    # Track newly-added production functions.
+    #
+    # This allows a generated test to automatically import a
+    # function that was created earlier in the same agent run.
+    # ---------------------------------------------------------
+
+    added_functions: dict[str, str] = {}
+
+    for edit in edits:
+
+        if edit.get("operation") != "add_function":
+            continue
+
+        edit_path = edit.get("path", "")
+        edit_code = edit.get("code", "")
+
+        try:
+            added_tree = ast.parse(edit_code)
+
+            for node in added_tree.body:
+
+                if isinstance(
+                    node,
+                    (ast.FunctionDef, ast.AsyncFunctionDef),
+                ):
+                    added_functions[node.name] = edit_path
+
+        except SyntaxError:
+            # Normal validation will report the actual
+            # syntax problem later.
+            continue
+
+    # ---------------------------------------------------------
+    # Apply edits in order.
+    # ---------------------------------------------------------
+
     for edit in edits:
 
         path = edit.get(
@@ -435,15 +560,41 @@ def apply_structured_edits(
 
         current = file_map[path]
 
-        if operation in {
-            "add_function",
-            "add_test",
-        }:
+        # -----------------------------------------------------
+        # Add production function.
+        # -----------------------------------------------------
+
+        if operation == "add_function":
 
             updated = _append_top_level_function(
                 current,
                 code,
             )
+
+        # -----------------------------------------------------
+        # Add test function.
+        #
+        # Before adding the test, automatically add imports for
+        # newly-created functions referenced by that test.
+        # -----------------------------------------------------
+
+        elif operation == "add_test":
+
+            current = _ensure_test_imports(
+                current,
+                code,
+                path,
+                added_functions,
+            )
+
+            updated = _append_top_level_function(
+                current,
+                code,
+            )
+
+        # -----------------------------------------------------
+        # Add import.
+        # -----------------------------------------------------
 
         elif operation == "add_import":
 
@@ -451,6 +602,10 @@ def apply_structured_edits(
                 current,
                 code,
             )
+
+        # -----------------------------------------------------
+        # Replace existing function.
+        # -----------------------------------------------------
 
         elif operation == "replace_function":
 
@@ -466,6 +621,10 @@ def apply_structured_edits(
                 target,
                 code,
             )
+
+        # -----------------------------------------------------
+        # Append raw text.
+        # -----------------------------------------------------
 
         elif operation == "append_text":
 
@@ -483,10 +642,20 @@ def apply_structured_edits(
                 f"'{operation}' for '{path}'."
             )
 
+        # -----------------------------------------------------
+        # Validate Python syntax.
+        # -----------------------------------------------------
+
         _validate_python(
             updated,
             path,
         )
+
+        # -----------------------------------------------------
+        # Safety check:
+        # Existing functions must not disappear unless the
+        # operation is explicitly replace_function.
+        # -----------------------------------------------------
 
         old_functions = _function_names(
             current
@@ -512,6 +681,10 @@ def apply_structured_edits(
                 )
 
         file_map[path] = updated
+
+    # ---------------------------------------------------------
+    # Build unified diffs.
+    # ---------------------------------------------------------
 
     changes = []
 

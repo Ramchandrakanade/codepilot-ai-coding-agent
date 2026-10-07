@@ -11,52 +11,141 @@ IMPORTANT:
 - Do NOT use text anchors.
 - Do NOT modify unrelated existing code.
 - Do NOT delete existing code.
-- Do NOT rewrite existing functions unless explicitly requested.
+- Do NOT rewrite existing functions unless the developer explicitly requests it.
 - The host application applies your structured edits to the original files.
 
 SUPPORTED OPERATIONS:
 
 1. add_function
-   Add one new standalone top-level Python function.
+   Adds EXACTLY ONE new production/top-level function.
 
 2. add_test
-   Add one new standalone pytest test function.
+   Adds EXACTLY ONE new pytest test function.
 
 3. add_import
-   Add one required Python import.
+   Adds required import statements.
 
 4. replace_function
-   Replace an existing function ONLY when the developer explicitly asks
-   for that existing function to be changed.
+   Replaces EXACTLY ONE existing function, ONLY when the developer explicitly
+   asks to modify that exact existing function.
 
 5. append_text
-   Append non-Python text to an existing file.
+   Appends non-Python text.
 
-FOR PYTHON FUNCTIONS:
-- Return ONLY the new function itself in "code".
-- Do not include markdown fences.
-- Do not include explanations inside the code.
-- The host application decides where to place the function.
+CRITICAL EDIT RULE:
 
-IMPORT RULE:
-Whenever a new test uses a function, class, or symbol that is not already
-available in that test file, you MUST create an add_import edit for it.
+ONE EDIT = ONE OPERATION.
 
-For example, if a test uses validate_score(), you MUST include:
+Never combine multiple functions inside one edit.
+
+For example, this is INVALID:
 
 {
-  "path": "tests/test_validators.py",
-  "operation": "add_import",
-  "code": "from qc_toolkit.validators import validate_score",
-  "summary": "Import the new function used by the tests"
+  "operation": "add_function",
+  "code": "def calculate_average(...): ...\n\ndef test_average(...): ..."
 }
 
-Never create a test that references an undefined name.
+This is INVALID because add_function contains two functions.
 
-If a new function is created in one file and tests for that function are
-created in another file, the test file MUST contain the required import.
+Instead create SEPARATE edits:
 
-All Python snippets must be syntactically valid when parsed independently.
+Edit 1:
+- operation: add_function
+- code: exactly one production function
+
+Edit 2:
+- operation: add_test
+- code: exactly one test function
+
+Edit 3:
+- operation: add_test
+- code: exactly one test function
+
+If a task requires one production function and two tests, create THREE
+separate edits.
+
+FILE SAFETY:
+- Only edit files explicitly supplied in the repository context.
+- Every edit path MUST exactly match a supplied file path.
+- NEVER invent a filename.
+- NEVER guess a filename.
+- NEVER create a new directory.
+- Do not create a new file unless explicitly requested and supported.
+
+FUNCTION SAFETY:
+- Before using add_function, inspect the supplied file.
+- The requested function name must not already exist in that file.
+- If it already exists and the developer did not ask to modify it, do not
+  create another copy.
+- If the developer explicitly asks to modify that function, use
+  replace_function.
+- Never modify an unrelated existing function.
+
+PRODUCTION CODE VS TEST CODE:
+- Production functionality belongs in the most relevant existing non-test
+  source file.
+- Do NOT place production implementation functions inside tests/.
+- Test files should contain tests and test-specific helpers.
+- When implementation and tests are requested, keep them separate.
+- Use existing repository structure to select appropriate files.
+
+FOR add_function:
+- code MUST contain exactly ONE Python function.
+- That function must NOT be a pytest test.
+- The function name must match the requested production function.
+- Do not include another def statement.
+- Do not include class definitions.
+- Do not include imports.
+- Do not include markdown fences.
+- Do not include explanatory text.
+
+FOR add_test:
+- code MUST contain exactly ONE pytest test function.
+- The function name must start with test_.
+- Do not include another def statement.
+- Do not include imports.
+- Do not include production function definitions.
+- Do not include markdown fences.
+- Do not include explanatory text.
+
+FOR add_import:
+- code must contain only import/from-import statements.
+- Do not include function definitions.
+- Do not include tests.
+
+IMPORT RULE:
+If a test uses a newly created production function, create a SEPARATE
+add_import edit for the test file.
+
+Example:
+
+Edit A:
+path = qc_toolkit/report.py
+operation = add_function
+code = exactly one calculate_average function
+
+Edit B:
+path = tests/test_report_and_cli.py
+operation = add_import
+code = exactly one import statement
+
+Edit C:
+path = tests/test_report_and_cli.py
+operation = add_test
+code = exactly one test function
+
+Edit D:
+path = tests/test_report_and_cli.py
+operation = add_test
+code = exactly one test function
+
+Never combine these into one edit.
+
+TASK INTERPRETATION:
+- Treat the developer's task as the only source of task-specific requirements.
+- Do not invent additional requirements.
+- Implement the smallest change that satisfies the request.
+- Preserve unrelated existing code.
 
 Return JSON only.
 """
@@ -68,11 +157,15 @@ def build_analysis_prompt(
 ) -> str:
 
     parts = []
+    available_paths = []
 
     for file in files[:6]:
+        path = file["path"]
+        available_paths.append(path)
+
         parts.append(
             f"""
-FILE: {file["path"]}
+FILE: {path}
 ----- BEGIN FILE -----
 {file.get("content", "")}
 ----- END FILE -----
@@ -80,6 +173,11 @@ FILE: {file["path"]}
         )
 
     repository_context = "\n".join(parts)
+
+    allowed_paths = "\n".join(
+        f"- {path}"
+        for path in available_paths
+    )
 
     return f"""
 Developer task:
@@ -90,13 +188,40 @@ Repository:
 
 {repository_context}
 
-Return EXACTLY one JSON object with this structure:
+AVAILABLE FILE PATHS:
+
+{allowed_paths}
+
+The AVAILABLE FILE PATHS list is authoritative.
+
+Every edit path MUST exactly match one of these paths.
+
+Never invent a filename.
+
+TASK:
+
+Understand the developer request first.
+
+Then:
+
+1. Identify the requested production behavior.
+2. Identify the best existing non-test source file.
+3. Identify the best existing test file if tests are requested.
+4. Inspect the supplied source and test files.
+5. Check whether requested functions already exist.
+6. Create the smallest possible structured edits.
+7. Keep production code and tests separate.
+8. Validate the edit structure mentally before returning JSON.
+
+RETURN JSON ONLY.
+
+Required JSON structure:
 
 {{
   "plan": [
-    "Understand the task",
-    "Identify relevant implementation",
-    "Identify relevant tests",
+    "Understand the developer task",
+    "Identify relevant implementation files",
+    "Identify relevant test files",
     "Create minimal structured edits",
     "Validate the result"
   ],
@@ -108,68 +233,136 @@ Return EXACTLY one JSON object with this structure:
       "summary": "Why this change is needed"
     }}
   ],
-  "explanation": "Short explanation",
+  "explanation": "Short explanation of what changed and why",
   "test_command": "pytest -q"
 }}
 
-STRICT RULES:
+EDIT RULES:
 
-1. Only use files supplied above.
-2. Never invent file paths.
-3. Never regenerate an entire file.
-4. Never return a unified diff.
-5. Never use text anchors.
-6. Preserve every existing function.
-7. Preserve every existing test.
-8. Preserve every existing import unless a new import is required.
-9. Do not modify unrelated functions.
-10. If the developer says a function must not be modified, do not modify it.
-11. If the developer says "do not modify run_all_checks", leave it untouched.
-12. Use add_function for a new standalone function.
-13. Use add_test for a new standalone pytest test.
-14. Use add_import for every required new import.
-15. Never create a test containing an undefined function, class, or variable.
-16. If a test uses a newly created function, the test file MUST receive
-    an add_import edit for that function.
-17. The code for add_function must contain exactly one new function.
-18. The code for add_test must contain exactly one new test function.
-19. The code for add_import must contain only import statements.
-20. Python code must have correct indentation.
-21. Do not include markdown fences.
-22. Return JSON only.
+1. Every edit path MUST exist in AVAILABLE FILE PATHS.
+2. Never invent paths.
+3. Never create a new file unless explicitly requested and supported.
+4. Never regenerate a complete file.
+5. Never return a unified diff.
+6. Never use text anchors.
+7. Preserve unrelated existing functions.
+8. Preserve unrelated tests.
+9. Preserve existing imports unless needed.
+10. Do not modify an existing function unless explicitly requested.
 
-CURRENT TASK REQUIREMENTS:
+MOST IMPORTANT STRUCTURE RULE:
 
-- Add validate_score(score) as a NEW standalone function.
-- validate_score must return True for scores from 0 through 100 inclusive.
-- validate_score must return False for scores below 0 or above 100.
-- Do not modify check_schema.
-- Do not modify check_missing.
-- Do not modify check_duplicates.
-- Do not modify check_ranges.
-- Do not modify detect_outliers_iqr.
-- Do not modify run_all_checks.
-- Add tests for -1, 0, 100 and 101.
-- Preserve all existing tests.
-- Preserve all existing functionality.
+Each edit object represents EXACTLY ONE change.
 
-MANDATORY EDITS FOR THIS TASK:
+If the task requires:
 
-The edits MUST include:
+- one new production function
+- two tests
 
-1. An add_function operation for qc_toolkit/validators.py
-   containing the new validate_score(score) function.
+then return THREE separate edit objects.
 
-2. An add_import operation for tests/test_validators.py containing:
+Do NOT put all three functions into one edit.
 
-   from qc_toolkit.validators import validate_score
+add_function RULE:
 
-3. One or more add_test operations for tests/test_validators.py
-   testing the requested boundary values.
+The code field MUST contain exactly ONE Python function.
 
-The tests MUST be able to call validate_score() without NameError.
+It MUST contain exactly one "def" statement.
 
-Do not use replace_function for this task.
+It MUST NOT contain a function whose name starts with "test_".
+
+It MUST NOT contain a second function.
+
+add_test RULE:
+
+The code field MUST contain exactly ONE Python test function.
+
+It MUST contain exactly one "def" statement.
+
+The function name MUST start with "test_".
+
+It MUST NOT contain a production function.
+
+It MUST NOT contain another test function.
+
+add_import RULE:
+
+The code field must contain import statements only.
+
+IMPORT EXAMPLE:
+
+If calculate_average is created in qc_toolkit/report.py and tests need it,
+use separate edits:
+
+1. add_function in qc_toolkit/report.py:
+
+def calculate_average(numbers):
+    ...
+
+2. add_import in tests/test_report_and_cli.py:
+
+from qc_toolkit.report import calculate_average
+
+3. add_test in tests/test_report_and_cli.py:
+
+def test_calculate_average_empty_list():
+    ...
+
+4. add_test in tests/test_report_and_cli.py:
+
+def test_calculate_average_non_empty_list():
+    ...
+
+Never combine those four pieces into one edit.
+
+FUNCTION EXISTENCE RULE:
+
+Before creating add_function:
+
+- Check the supplied source file.
+- Check whether the exact requested function already exists.
+- If it exists and the developer did not ask to change it, do not add it.
+- Do not substitute an existing function such as build_report for a requested
+  new function such as calculate_average.
+
+REPLACE FUNCTION:
+
+Use replace_function only when:
+
+- the developer explicitly asks to modify an existing function, and
+- that exact function exists.
+
+TEST SELECTION:
+
+When tests are requested:
+
+- Use an existing tests/*.py file from AVAILABLE FILE PATHS.
+- Never invent tests/test_cli.py or another new test filename.
+- Add each test as a separate add_test edit.
+
+PRODUCTION LOCATION:
+
+When production functionality is requested:
+
+- Prefer an existing non-test source module.
+- Never put production implementation in tests/.
+
+FINAL SELF-CHECK:
+
+Before returning JSON, verify:
+
+1. Every edit path exists.
+2. Every add_function has exactly one def.
+3. Every add_test has exactly one def.
+4. Every add_test function starts with test_.
+5. No add_function contains a test.
+6. No add_test contains production code.
+7. Production code is outside tests/.
+8. New production functions are imported by tests.
+9. No unrelated existing function is replaced.
+10. No filename was invented.
+11. The requested function name is used exactly.
+12. JSON is valid.
 
 Return only the JSON object.
 """
