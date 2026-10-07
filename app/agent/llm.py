@@ -13,12 +13,22 @@ OLLAMA_MODEL = os.getenv(
     "qwen2.5-coder:3b",
 )
 
+HF_MODEL = os.getenv(
+    "HF_MODEL",
+    "Qwen/Qwen2.5-Coder-3B-Instruct",
+)
+
+AI_PROVIDER = os.getenv(
+    "AI_PROVIDER",
+    "ollama",
+).lower()
+
 
 def generate_plan_and_patch(
     task: str,
     files: list[dict],
 ) -> dict:
-    """Ask the local Ollama model to analyze the task."""
+    """Generate a coding-agent response using the configured AI provider."""
 
     from .prompts import (
         SYSTEM_PROMPT,
@@ -31,26 +41,19 @@ def generate_plan_and_patch(
     )
 
     try:
-        response = ollama.chat(
-            model=OLLAMA_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            format="json",
-            options={
-                "temperature": 0,
-                "num_predict": 4000,
-            },
-        )
+        if AI_PROVIDER == "huggingface":
+            content = generate_with_huggingface(
+                prompt=prompt,
+                system_prompt=SYSTEM_PROMPT,
+            )
+            model_name = HF_MODEL
 
-        content = response["message"]["content"]
+        else:
+            content = generate_with_ollama(
+                prompt=prompt,
+                system_prompt=SYSTEM_PROMPT,
+            )
+            model_name = OLLAMA_MODEL
 
         result = parse_model_json(content)
 
@@ -85,7 +88,7 @@ def generate_plan_and_patch(
             old_content = original_file["content"]
 
             # Safety check 1:
-            # Reject placeholder implementations such as "...".
+            # Reject placeholder implementations.
             if contains_placeholder_code(new_content):
                 raise ValueError(
                     f"Unsafe AI response for {path}: "
@@ -93,7 +96,7 @@ def generate_plan_and_patch(
                 )
 
             # Safety check 2:
-            # Make sure Python files still contain valid Python.
+            # Make sure Python files remain valid Python.
             if path.endswith(".py"):
                 try:
                     ast.parse(new_content)
@@ -123,6 +126,7 @@ def generate_plan_and_patch(
 
             change["content"] = new_content
 
+            # Generate a real unified diff for the UI.
             diff = difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 new_content.splitlines(keepends=True),
@@ -136,9 +140,9 @@ def generate_plan_and_patch(
             safe_changes.append(change)
 
         result["changes"] = safe_changes
-
         result["demo_mode"] = False
-        result["model"] = OLLAMA_MODEL
+        result["model"] = model_name
+        result["provider"] = AI_PROVIDER
         result["task"] = task
 
         return result
@@ -154,10 +158,82 @@ def generate_plan_and_patch(
             ),
             "test_command": "pytest -q",
             "demo_mode": True,
-            "model": OLLAMA_MODEL,
+            "model": (
+                HF_MODEL
+                if AI_PROVIDER == "huggingface"
+                else OLLAMA_MODEL
+            ),
+            "provider": AI_PROVIDER,
             "task": task,
             "error": str(exc),
         }
+
+
+def generate_with_ollama(
+    prompt: str,
+    system_prompt: str,
+) -> str:
+    """Generate JSON using the local Ollama server."""
+
+    response = ollama.chat(
+        model=OLLAMA_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        format="json",
+        options={
+            "temperature": 0,
+            "num_predict": 4000,
+        },
+    )
+
+    return response["message"]["content"]
+
+
+def generate_with_huggingface(
+    prompt: str,
+    system_prompt: str,
+) -> str:
+    """Generate JSON using Hugging Face Inference Providers."""
+
+    from huggingface_hub import InferenceClient
+
+    token = os.getenv("HF_TOKEN")
+
+    if not token:
+        raise ValueError(
+            "HF_TOKEN is not configured."
+        )
+
+    client = InferenceClient(
+        api_key=token,
+        provider="auto",
+    )
+
+    response = client.chat.completions.create(
+        model=HF_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        temperature=0,
+        max_tokens=4000,
+    )
+
+    return response.choices[0].message.content
 
 
 def contains_placeholder_code(content: str) -> bool:
@@ -231,7 +307,7 @@ def clean_file_content(content: str) -> str:
 
 
 def parse_model_json(content: str) -> dict:
-    """Parse JSON returned by Ollama."""
+    """Parse JSON returned by the AI model."""
 
     text = content.strip()
 
@@ -261,9 +337,9 @@ def parse_model_json(content: str) -> dict:
 
             except json.JSONDecodeError as exc:
                 raise ValueError(
-                    "The local model returned malformed JSON."
+                    "The AI model returned malformed JSON."
                 ) from exc
 
         raise ValueError(
-            "The local model did not return valid JSON."
+            "The AI model did not return valid JSON."
         )
