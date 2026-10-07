@@ -5,3 +5,4 @@ gunicorn>=22.0
 python-dotenv>=1.0
 ollama>=0.4
 huggingface_hub>=0.35
+google-genai>=1.0
