@@ -1,1 +1,213 @@
-const $=id=>document.getElementById(id);$('example').onclick=()=>{$('task').value='Add input validation to the score field and write a test for invalid values.'};$('run').onclick=async()=>{const task=$('task').value.trim();if(!task){$('error').textContent='Please enter a developer task.';$('error').classList.remove('hidden');return}$('error').classList.add('hidden');$('run').disabled=true;$('run').textContent='Analyzing…';$('workspace').classList.remove('hidden');$('plan').innerHTML='<div class="empty">Analyzing task and scanning codebase…</div>';try{const r=await fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Agent failed');$('mode').textContent=d.demo_mode?'DEMO':'LIVE';$('scanned').textContent=`${d.files_scanned} files scanned`;$('plan').innerHTML=d.plan.map((x,i)=>`<div class="step"><b>${i+1}</b><span>${escapeHtml(x)}</span></div>`).join('');$('files').innerHTML=d.relevant_files.map(f=>`<div class="file"><code>${escapeHtml(f.path)}</code><span>${f.lines} lines</span></div>`).join('');$('changes').innerHTML=d.changes?.length?d.changes.map(c=>`<div class="change"><strong>${escapeHtml(c.path)}</strong><p>${escapeHtml(c.summary||'')}</p><div class="diff">${escapeHtml(c.patch||'')}</div></div>`).join(''):'<div class="empty">No patch was generated in this run. The agent did not claim changes were applied.</div>';$('validation').innerHTML=`<span class="${d.validation.passed?'pass':'fail'}">${d.validation.passed?'✓ VALIDATION PASSED':'✕ VALIDATION FAILED'}</span>\n\n${escapeHtml(d.validation.output)}`;$('summary').textContent=d.explanation}catch(e){$('error').textContent=e.message;$('error').classList.remove('hidden')}finally{$('run').disabled=false;$('run').innerHTML='Analyze & Build <span>→</span>'}};function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+const $ = id => document.getElementById(id);
+
+$('example').onclick = () => {
+    $('task').value =
+        'Add input validation to the score field and write a test for invalid values.';
+};
+
+$('run').onclick = async () => {
+    const task = $('task').value.trim();
+
+    if (!task) {
+        $('error').textContent =
+            'Please enter a developer task.';
+        $('error').classList.remove('hidden');
+        return;
+    }
+
+    $('error').classList.add('hidden');
+
+    $('run').disabled = true;
+    $('run').textContent = 'Analyzing…';
+
+    $('workspace').classList.remove('hidden');
+
+    $('plan').innerHTML =
+        '<div class="empty">Analyzing task and scanning codebase…</div>';
+
+    try {
+        const response = await fetch(
+            '/api/agent/run',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    task: task
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.error || 'Agent failed'
+            );
+        }
+
+        // ----------------------------------------
+        // Agent mode
+        // ----------------------------------------
+
+        $('mode').textContent =
+            data.demo_mode ? 'DEMO' : 'LIVE';
+
+        // ----------------------------------------
+        // Files scanned
+        // ----------------------------------------
+
+        $('scanned').textContent =
+            `${data.files_scanned} files scanned`;
+
+        // ----------------------------------------
+        // Agent plan
+        // ----------------------------------------
+
+        $('plan').innerHTML =
+            Array.isArray(data.plan) && data.plan.length
+                ? data.plan.map(
+                    (step, index) => `
+                        <div class="step">
+                            <b>${index + 1}</b>
+                            <span>${escapeHtml(step)}</span>
+                        </div>
+                    `
+                ).join('')
+                : '<div class="empty">No plan returned.</div>';
+
+        // ----------------------------------------
+        // Relevant files
+        // ----------------------------------------
+
+        $('files').innerHTML =
+            Array.isArray(data.relevant_files) &&
+            data.relevant_files.length
+                ? data.relevant_files.map(
+                    file => `
+                        <div class="file">
+                            <code>${escapeHtml(file.path)}</code>
+                            <span>${file.lines} lines</span>
+                        </div>
+                    `
+                ).join('')
+                : '<div class="empty">No relevant files identified.</div>';
+
+        // ----------------------------------------
+        // Code changes
+        // ----------------------------------------
+
+        if (
+            Array.isArray(data.changes) &&
+            data.changes.length
+        ) {
+            $('changes').innerHTML =
+                data.changes.map(change => {
+
+                    const diff =
+                        change.diff ||
+                        change.patch ||
+                        '';
+
+                    const summary =
+                        change.summary ||
+                        'Structured code change generated by the agent.';
+
+                    return `
+                        <div class="change">
+
+                            <strong>
+                                ${escapeHtml(change.path)}
+                            </strong>
+
+                            <p>
+                                ${escapeHtml(summary)}
+                            </p>
+
+                            <div class="diff">
+                                ${escapeHtml(diff)}
+                            </div>
+
+                        </div>
+                    `;
+                }).join('');
+        } else {
+            $('changes').innerHTML =
+                '<div class="empty">' +
+                'No patch was generated in this run. ' +
+                'The agent did not claim changes were applied.' +
+                '</div>';
+        }
+
+        // ----------------------------------------
+        // Validation
+        // ----------------------------------------
+
+        if (data.validation) {
+
+            const passed =
+                Boolean(data.validation.passed);
+
+            $('validation').innerHTML = `
+                <span class="${passed ? 'pass' : 'fail'}">
+                    ${passed
+                        ? '✓ VALIDATION PASSED'
+                        : '✕ VALIDATION FAILED'}
+                </span>
+
+                <pre>${escapeHtml(
+                    data.validation.output || ''
+                )}</pre>
+            `;
+
+        } else {
+
+            $('validation').innerHTML =
+                '<span class="fail">' +
+                '✕ VALIDATION INFORMATION UNAVAILABLE' +
+                '</span>';
+        }
+
+        // ----------------------------------------
+        // Agent summary
+        // ----------------------------------------
+
+        $('summary').textContent =
+            data.explanation ||
+            'No explanation returned by the agent.';
+
+    } catch (error) {
+
+        $('error').textContent =
+            error.message;
+
+        $('error').classList.remove('hidden');
+
+    } finally {
+
+        $('run').disabled = false;
+
+        $('run').innerHTML =
+            'Analyze & Build <span>→</span>';
+    }
+};
+
+
+// ============================================
+// HTML escaping
+// ============================================
+
+function escapeHtml(value) {
+
+    return String(value).replace(
+        /[&<>'"]/g,
+        character => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[character])
+    );
+}
