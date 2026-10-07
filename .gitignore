@@ -1,0 +1,19 @@
+# Environment / secrets
+.env
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated reports
+qc_report.json
+
+# Local development
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

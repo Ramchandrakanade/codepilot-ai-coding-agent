@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodePilot AI — Coding Agent</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="logo">⌘</span><div><strong>CodePilot AI</strong><small>Intelligent Coding Agent</small></div></div>
+      <div class="status"><i></i> Agent Ready</div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <span class="eyebrow">AI SOFTWARE ENGINEERING</span>
+        <h1>Turn a developer task into<br><span>validated code changes.</span></h1>
+        <p>Analyze a real codebase, identify relevant files, create an implementation plan, generate a patch, and validate the result.</p>
+      </section>
+
+      <section class="task-card">
+        <label for="task">DEVELOPER TASK</label>
+        <textarea id="task" rows="4" placeholder="Example: Add input validation to the score field and write a test for invalid values."></textarea>
+        <div class="task-footer"><button id="example">Use example</button><button id="run">Analyze &amp; Build <span>→</span></button></div>
+      </section>
+
+      <section id="workspace" class="workspace hidden">
+        <div class="panel plan-panel"><div class="panel-head"><h2>Agent Plan</h2><span id="mode" class="badge">LIVE</span></div><div id="plan"></div></div>
+        <div class="panel files-panel"><div class="panel-head"><h2>Relevant Files</h2><span id="scanned" class="muted"></span></div><div id="files"></div></div>
+        <div class="panel changes-panel"><div class="panel-head"><h2>Code Changes</h2><span class="muted">Proposed patch</span></div><div id="changes"></div></div>
+        <div class="panel validation-panel"><div class="panel-head"><h2>Validation</h2></div><pre id="validation"></pre></div>
+        <div class="panel summary-panel"><div class="panel-head"><h2>Agent Summary</h2></div><p id="summary"></p></div>
+      </section>
+      <div id="error" class="error hidden"></div>
+    </main>
+    <footer>CodePilot AI · Built as an IntegrationWings coding-agent assignment</footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
