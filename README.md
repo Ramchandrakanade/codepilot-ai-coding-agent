@@ -52,7 +52,29 @@ The goal is to demonstrate a practical **software-engineering coding-agent workf
 
 ---
 
+## 📦 Upload and Analyze Your Own Project
+
+CodePilot AI Coding Agent allows users to upload their own Python projects as ZIP files and request code changes using natural language.
+
+## Features
+
+- Upload a project as a ZIP file.
+- Analyze project files relevant to the requested task.
+- Generate proposed code changes using AI.
+- Generate or update Python tests.
+- Validate changes by running tests.
+- Protect ZIP extraction against path traversal and oversized uploads.
+
+## How to Use
+- Open the deployed CodePilot application.
+- Upload your project ZIP file.
+- Enter the coding task you want the AI agent to perform.
+- Review the proposed changes.
+- Run validation and inspect the test results.
+- Note: Review generated code and test results before using changes in a production project.
+
 ## Live Demo
+- Open CodePilot AI Coding Agent
 
 **Deployed Application**
 
