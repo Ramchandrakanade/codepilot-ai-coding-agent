@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import ast
 import json
@@ -529,23 +529,67 @@ def generate_plan_and_patch(task, files):
             )
 
     # ---------------------------------------------------------
-    # Provider fallback.
+    # Provider fallback chain.
+    #
+    # Primary provider is AI_PROVIDER.
+    # If the primary provider fails, try the available providers
+    # in a deterministic order and continue when one fails.
     # ---------------------------------------------------------
 
-    fallback_provider = None
+    fallback_providers = []
 
     if AI_PROVIDER == "openrouter":
+        # OpenRouter -> Gemini -> Groq
         if os.getenv("GEMINI_API_KEY"):
-            fallback_provider = "gemini"
+            fallback_providers.append("gemini")
+
+        if os.getenv("GROQ_API_KEY"):
+            fallback_providers.append("groq")
 
     elif AI_PROVIDER == "gemini":
+        # Gemini -> Groq -> OpenRouter
         if os.getenv("GROQ_API_KEY"):
-            fallback_provider = "groq"
-        elif os.getenv("OPENROUTER_API_KEY"):
-            fallback_provider = "openrouter"
+            fallback_providers.append("groq")
 
-    if fallback_provider:
+        if os.getenv("OPENROUTER_API_KEY"):
+            fallback_providers.append("openrouter")
+
+    elif AI_PROVIDER == "groq":
+        # Groq -> OpenRouter -> Gemini
+        if os.getenv("OPENROUTER_API_KEY"):
+            fallback_providers.append("openrouter")
+
+        if os.getenv("GEMINI_API_KEY"):
+            fallback_providers.append("gemini")
+
+    elif AI_PROVIDER == "ollama":
+        # Ollama -> Gemini -> Groq -> OpenRouter
+        if os.getenv("GEMINI_API_KEY"):
+            fallback_providers.append("gemini")
+
+        if os.getenv("GROQ_API_KEY"):
+            fallback_providers.append("groq")
+
+        if os.getenv("OPENROUTER_API_KEY"):
+            fallback_providers.append("openrouter")
+
+    elif AI_PROVIDER == "huggingface":
+        # Hugging Face -> Gemini -> Groq -> OpenRouter
+        if os.getenv("GEMINI_API_KEY"):
+            fallback_providers.append("gemini")
+
+        if os.getenv("GROQ_API_KEY"):
+            fallback_providers.append("groq")
+
+        if os.getenv("OPENROUTER_API_KEY"):
+            fallback_providers.append("openrouter")
+
+    fallback_errors = []
+
+    for fallback_provider in fallback_providers:
+
         try:
+
             content, model_name, provider_name = (
                 generate_with_provider(
                     fallback_provider,
@@ -554,7 +598,10 @@ def generate_plan_and_patch(task, files):
                 )
             )
 
-            result = normalize_generated_result(task, parse_model_json(content))
+            result = normalize_generated_result(
+                task,
+                parse_model_json(content),
+            )
 
             validate_requested_function_edits(
                 result,
@@ -577,12 +624,22 @@ def generate_plan_and_patch(task, files):
             return result
 
         except Exception as fallback_error:
-            raise RuntimeError(
-                "Primary AI provider failed: "
-                f"{primary_error}\n\n"
-                "Fallback AI provider also failed: "
-                f"{fallback_error}"
-            ) from fallback_error
+
+            fallback_errors.append(
+                f"{fallback_provider}: {fallback_error}"
+            )
+
+            # Continue to the next provider.
+            continue
+
+    if fallback_errors:
+
+        raise RuntimeError(
+            "Primary AI provider failed: "
+            f"{primary_error}\n\n"
+            "All fallback AI providers failed:\n"
+            + "\n".join(fallback_errors)
+        )
 
     raise primary_error
 
@@ -1563,3 +1620,4 @@ __all__ = [
     "generate_plan_and_patch",
     "parse_model_json",
 ]
+
