@@ -1,17 +1,31 @@
-````
 <div align="center">
 
-# CodePilot AI
+# &#x1F916; CodePilot AI
 
-### Intelligent Coding Agent
+## &#x1F680; Intelligent Coding Agent
 
-**Turn a developer task into validated code changes.**
+### &#x2728; Turn a developer task into validated code changes
 
 <br>
 
-[![Live Application](https://img.shields.io/badge/Live%20Application-CodePilot%20AI-blue?style=for-the-badge)](https://codepilot-ai-coding-agent.onrender.com)
+[![AI Coding Agent](https://img.shields.io/badge/AI-Coding%20Agent-6C63FF?style=for-the-badge)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
+[![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-Web%20App-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![Tests](https://img.shields.io/badge/Tests-22%20Passed-2EA44F?style=for-the-badge)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
 
-[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
+<br><br>
+
+[![Live Demo](https://img.shields.io/badge/%F0%9F%8C%90%20LIVE%20DEMO-CodePilot%20AI-00BFA6?style=for-the-badge)](https://codepilot-ai-coding-agent.onrender.com)
+[![GitHub](https://img.shields.io/badge/%F0%9F%92%BB%20GITHUB-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
+
+<br><br>
+
+> &#x1F9E0; **Understand** &rarr; &#x1F4CB; **Plan** &rarr; &#x1F6E0;&#xFE0F; **Change** &rarr; &#x1F9EA; **Validate**
+
+<br>
+
+**An AI-powered software engineering assistant that analyzes codebases,**  
+**identifies relevant files, proposes structured changes, and validates the result.**
 
 </div>
 
