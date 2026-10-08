@@ -1178,12 +1178,12 @@ def generate_with_openrouter(
     configured_model = OPENROUTER_MODEL
 
     if configured_model in {
-    "openrouter/free",
-    "qwen/qwen3.8-27b:free",
-    "qwen/qwen3.8-27b",
-    "qwen/qwen3.6-plus-preview:free",
-}:
-    configured_model = "qwen/qwen3.6-plus:free"
+        "openrouter/free",
+        "qwen/qwen3.8-27b:free",
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3.6-plus-preview:free",
+    }:
+        configured_model = "qwen/qwen3.6-plus:free"
 
     # Build a deterministic model fallback list.
     models = []
