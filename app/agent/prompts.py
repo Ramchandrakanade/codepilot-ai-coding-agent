@@ -70,17 +70,38 @@ PANDAS SAFETY RULES:
 - Preserve pandas DataFrame and Series behavior when adding new functions.
 
 IMPORT RULE:
+
 Whenever a new test uses a function, class, or symbol that is not already
 available in that test file, you MUST create an add_import edit for it.
 
 Never create a test that references an undefined name.
 
+IMPORT SOURCE RULE:
+
+- When a new function is created in a module, import it in tests from that
+  exact defining module.
+- Example: if validate_score is created in qc_toolkit/validators.py, use:
+      from qc_toolkit.validators import validate_score
+- Do NOT additionally import the same symbol from qc_toolkit unless the
+  supplied qc_toolkit/__init__.py explicitly exports that symbol.
+- Never create duplicate imports for the same symbol.
+- Before generating an add_import edit, inspect the existing imports in the
+  target test file and preserve existing valid imports.
+- Do not assume that a symbol is exported from a package's __init__.py.
+- The module containing the new function is the authoritative import source.
+- If the correct module import already exists, do not generate another
+  add_import edit for the same symbol.
+- Never generate two imports for the same symbol in the same test file.
+- Prefer the most specific module path that actually defines the symbol.
+
 If a new function is created in one file and tests for that function are
-created in another file, the test file MUST contain the required import.
+created in another file, the test file MUST contain exactly the import
+needed to reference that function from its defining module.
 
 All Python snippets must be syntactically valid when parsed independently.
 
 TASK INTERPRETATION:
+
 - Treat the developer's task as the only source of task-specific requirements.
 - Do not assume a particular function name, feature, file, boundary value,
   test case, or implementation unless it is stated in the developer task or
@@ -130,14 +151,19 @@ Before generating edits:
 
 1. Inspect the supplied file contents.
 2. Identify functions that already exist.
-3. If the task requests a NEW function, verify that its name does not already
+3. Identify imports that already exist in the relevant test file.
+4. If the task requests a NEW function, verify that its name does not already
    exist in the target file.
-4. If the function already exists, do NOT create an add_function edit for it.
-5. Only use replace_function when the developer explicitly asks to modify
+5. If the function already exists, do NOT create an add_function edit for it.
+6. Only use replace_function when the developer explicitly asks to modify
    that existing function.
-6. Inspect the data types used by the relevant code before implementing.
-7. If pandas DataFrame or Series objects are involved, use vectorized pandas
+7. Inspect the data types used by the relevant code before implementing.
+8. If pandas DataFrame or Series objects are involved, use vectorized pandas
    operations and avoid ambiguous Python boolean evaluation of Series.
+9. When tests need a newly created function, import it from the exact module
+   where that function is created.
+10. Do not import the same symbol from both a package root and its defining
+    module unless the repository explicitly requires both.
 
 Return EXACTLY one JSON object with this structure:
 
@@ -201,6 +227,13 @@ STRICT RULES:
 30. Do not use Python's built-in all() to evaluate a pandas Series when
     pandas .all() is required.
 31. Tests for pandas functions must verify the actual boolean result.
+32. When adding an import for a newly created function, import it from the
+    module that defines that function.
+33. Do not import a newly created function from qc_toolkit unless the
+    supplied qc_toolkit/__init__.py explicitly exports that function.
+34. Never generate duplicate imports for the same symbol.
+35. Before generating add_import, inspect existing imports in the test file.
+36. If the required import already exists, do not generate another import.
 
 EDIT SELECTION GUIDANCE:
 
@@ -222,6 +255,8 @@ EDIT SELECTION GUIDANCE:
   are used elsewhere in the repository and follow the existing project style.
 - Prefer clear vectorized pandas expressions over Python loops when operating
   on entire DataFrame columns.
+- When a test uses a newly created function, create exactly one import from
+  that function's defining module.
 
 VALIDATION GUIDANCE:
 
@@ -234,6 +269,10 @@ VALIDATION GUIDANCE:
 - The host application will reject duplicate existing functions.
 - The host application will validate the generated Python code.
 - Generated pandas code must not produce ambiguous Series truth-value errors.
+- Generated tests must be importable before pytest execution begins.
+- Import errors caused by incorrect module paths must be avoided.
+- Do not import symbols from package roots unless the supplied package
+  __init__.py explicitly exports them.
 
 Return only the JSON object.
 """
