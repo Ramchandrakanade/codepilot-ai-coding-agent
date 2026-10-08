@@ -28,6 +28,12 @@ GEMINI_MODEL = os.getenv(
     "gemini-3.8-flash",
 )
 
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "openai/gpt-oss-20b",
+)
+
+
 HF_MODEL = os.getenv(
     "HF_MODEL",
     "Qwen/Qwen2.5-Coder-3B-Instruct",
@@ -533,7 +539,9 @@ def generate_plan_and_patch(task, files):
             fallback_provider = "gemini"
 
     elif AI_PROVIDER == "gemini":
-        if os.getenv("OPENROUTER_API_KEY"):
+        if os.getenv("GROQ_API_KEY"):
+            fallback_provider = "groq"
+        elif os.getenv("OPENROUTER_API_KEY"):
             fallback_provider = "openrouter"
 
     if fallback_provider:
@@ -965,6 +973,18 @@ def generate_with_provider(
             "gemini",
         )
 
+    if provider == "groq":
+        content = generate_with_groq(
+            prompt,
+            system_prompt,
+        )
+
+        return (
+            content,
+            GROQ_MODEL,
+            "groq",
+        )
+
     if provider == "huggingface":
         content = generate_with_huggingface(
             prompt,
@@ -992,6 +1012,80 @@ def generate_with_provider(
     raise ValueError(
         f"Unsupported AI_PROVIDER: {provider}"
     )
+
+
+def generate_with_groq(
+    prompt,
+    system_prompt,
+):
+    """Generate JSON through the Groq API."""
+
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is not configured."
+        )
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "temperature": 0,
+        "response_format": {
+            "type": "json_object",
+        },
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    request = Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=body,
+        headers=headers,
+        method="POST",
+    )
+
+    with urlopen(request, timeout=90) as response:
+        raw = response.read().decode("utf-8")
+        data = json.loads(raw)
+
+    choices = data.get("choices", [])
+
+    if not choices:
+        raise RuntimeError(
+            "Groq returned no choices."
+        )
+
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+
+    if isinstance(content, list):
+        content = "".join(
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict)
+        )
+
+    if not str(content).strip():
+        raise RuntimeError(
+            "Groq returned empty model output."
+        )
+
+    return str(content)
 
 
 def generate_with_openrouter(
