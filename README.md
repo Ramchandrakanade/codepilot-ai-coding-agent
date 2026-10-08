@@ -1,4 +1,4 @@
-<div align="center">
+code README.md<div align="center">
 
 # &#x1F916; CodePilot AI
 
@@ -583,6 +583,38 @@ The application shows the plan, relevant files, changes, validation result, and 
 | LLM / agentic workflow          | LLM + orchestrator + structured tools |
 | Error handling and safety       | Validation and edit safeguards        |
 | Assumptions and limitations     | Documentation                         |
+
+---
+
+## Demo Evidence
+
+The following screenshots demonstrate the complete CodePilot AI workflow from developer task understanding to validated code changes.
+
+### 1. Developer Task & Agent Dashboard
+
+The main dashboard provides the developer task input and shows the CodePilot AI agent as ready to analyze and build.
+
+![CodePilot AI Dashboard](docs/screenshots/01-codepilot-dashboard.png)
+
+### 2. Agent Plan & Relevant Files
+
+The agent analyzes the task, creates an implementation plan, and identifies the relevant implementation and test files.
+
+![Agent Plan and Relevant Files](docs/screenshots/02-agent-plan-and-files.png)
+
+### 3. Generated Code Changes
+
+The agent generates a structured patch showing the requested changes to the implementation and test files.
+
+![Generated Code Changes](docs/screenshots/03-code-changes.png)
+
+### 4. Validation & Agent Summary
+
+The generated changes are validated using automated tests.
+
+**Validation Result: 22 tests passed**
+
+![Validation and Agent Summary](docs/screenshots/04-validation-and-summary.png)
 
 ---
 
