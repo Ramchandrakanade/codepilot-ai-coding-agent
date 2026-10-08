@@ -20,13 +20,11 @@ OLLAMA_MODEL = os.getenv(
 
 OPENROUTER_MODEL = os.getenv(
     "OPENROUTER_MODEL",
-    "qwen/qwen3.8-27b:free",
+    "qwen/qwen3.6-plus:free",
 )
 
 OPENROUTER_FALLBACK_MODELS = [
-    "qwen/qwen3.8-27b:free",
     "qwen/qwen3.6-plus:free",
-    "qwen/qwen3.6-plus-preview:free",
 ]
 
 GEMINI_MODEL = os.getenv(
@@ -1179,8 +1177,13 @@ def generate_with_openrouter(
     # automatically replace it with the new deterministic coding model.
     configured_model = OPENROUTER_MODEL
 
-    if configured_model == "openrouter/free":
-        configured_model = "qwen/qwen3.8-27b:free"
+    if configured_model in {
+    "openrouter/free",
+    "qwen/qwen3.8-27b:free",
+    "qwen/qwen3.8-27b",
+    "qwen/qwen3.6-plus-preview:free",
+}:
+    configured_model = "qwen/qwen3.6-plus:free"
 
     # Build a deterministic model fallback list.
     models = []
