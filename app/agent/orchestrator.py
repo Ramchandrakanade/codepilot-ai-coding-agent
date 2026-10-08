@@ -5,14 +5,18 @@ from .llm import generate_plan_and_patch
 from .validator import run_validation
 
 
-def run_agent(task: str) -> dict:
+def run_agent(
+    task: str,
+    project_root: str = "sample_project",
+) -> dict:
+
     if not task or len(task.strip()) < 5:
         raise ValueError(
             "Please enter a specific developer task."
         )
 
-    # 1. Inspect the sample repository.
-    files = scan_codebase()
+    # 1. Inspect the selected repository.
+    files = scan_codebase(project_root)
 
     # 2. Identify files relevant to the developer task.
     relevant = select_relevant_files(
@@ -20,7 +24,7 @@ def run_agent(task: str) -> dict:
         files,
     )
 
-    # 3. Ask the local LLM to understand the task,
+    # 3. Ask the LLM to understand the task,
     #    create a plan, and propose a patch.
     result = generate_plan_and_patch(
         task,
@@ -35,12 +39,15 @@ def run_agent(task: str) -> dict:
     # 4. Validate the proposed AI changes in
     #    an isolated temporary copy.
     validation = run_validation(
+        root=project_root,
         changes=changes,
     )
 
     return {
         "task": task,
         "files_scanned": len(files),
+
+        "project_root": project_root,
 
         "relevant_files": [
             {

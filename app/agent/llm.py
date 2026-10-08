@@ -946,6 +946,13 @@ TEST REQUIREMENT:
 
 The task explicitly requests tests.
 
+Each add_test edit MUST contain exactly ONE Python test
+function. If the task requests multiple test cases, include
+all those cases as assertions inside that single test function.
+Do not generate multiple top-level test functions in one add_test
+edit. Use separate add_test edits only when separate test
+functions are genuinely necessary.
+
 The generated add_test code MUST actually call or reference
 the requested function.
 
@@ -1941,9 +1948,61 @@ def generate_with_huggingface(
 
 
 def normalize_generated_result(task, result):
-    """Normalize simple LLM function-parameter mismatches before validation."""
-    requested_functions = extract_requested_functions(task)
+    """Normalize safe multi-test edits and function-parameter mismatches."""
 
+    # Split multiple test functions only when every top-level statement
+    # is either a function definition or an import. Never discard other code.
+    original_edits = result.get("edits", [])
+    normalized_edits = []
+
+    for edit in original_edits:
+        if edit.get("operation") != "add_test":
+            normalized_edits.append(edit)
+            continue
+
+        source = edit.get("code", "")
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            normalized_edits.append(edit)
+            continue
+
+        functions = [
+            node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        imports = [
+            node for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        ]
+
+        allowed_nodes = (
+            ast.FunctionDef,
+            ast.AsyncFunctionDef,
+            ast.Import,
+            ast.ImportFrom,
+        )
+
+        can_split = (
+            len(functions) > 1
+            and all(isinstance(node, allowed_nodes) for node in tree.body)
+        )
+
+        if not can_split:
+            normalized_edits.append(edit)
+            continue
+
+        import_code = [ast.unparse(node) for node in imports]
+
+        for function in functions:
+            new_edit = dict(edit)
+            pieces = import_code + [ast.unparse(function)]
+            new_edit["code"] = "\\n\\n".join(pieces) + "\\n"
+            normalized_edits.append(new_edit)
+
+    result["edits"] = normalized_edits
+
+    requested_functions = extract_requested_functions(task)
     if not requested_functions:
         return result
 
@@ -1952,15 +2011,13 @@ def normalize_generated_result(task, result):
             continue
 
         source = edit.get("code", "")
-
         try:
             tree = ast.parse(source)
         except SyntaxError:
             continue
 
         functions = [
-            node
-            for node in tree.body
+            node for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         ]
 
@@ -1968,15 +2025,12 @@ def normalize_generated_result(task, result):
             continue
 
         function_node = functions[0]
-
         if function_node.name not in requested_functions:
             continue
 
         requested_params = extract_requested_signature(
-            task,
-            function_node.name,
+            task, function_node.name
         )
-
         if requested_params is None:
             continue
 
@@ -1984,7 +2038,6 @@ def normalize_generated_result(task, result):
             list(function_node.args.posonlyargs)
             + list(function_node.args.args)
         )
-
         if len(actual_args) != len(requested_params):
             continue
 
@@ -1993,7 +2046,6 @@ def normalize_generated_result(task, result):
             for actual, requested in zip(actual_args, requested_params)
             if actual.arg != requested
         }
-
         if not rename_map:
             continue
 
@@ -2010,7 +2062,6 @@ def normalize_generated_result(task, result):
 
         RenameParameters().visit(function_node)
         ast.fix_missing_locations(function_node)
-
         edit["code"] = ast.unparse(function_node)
 
     return result
