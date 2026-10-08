@@ -72,6 +72,16 @@ def extract_requested_functions(task):
         r"\bdef\s+([A-Za-z_]\w*)\s*\(",
     ]
 
+    # Never treat natural-language keywords as function names.
+    reserved_words = {
+        "new",
+        "function",
+        "called",
+        "named",
+        "a",
+        "an",
+        "the",
+    }
     for pattern in patterns:
         for match in re.finditer(
             pattern,
@@ -80,7 +90,7 @@ def extract_requested_functions(task):
         ):
             name = match.group(1)
 
-            if name not in found:
+            if name.lower() not in reserved_words and name not in found:
                 found.append(name)
 
     return found
@@ -101,6 +111,20 @@ def extract_requested_signature(task, function_name):
     )
 
     if not match:
+        # If the task names a function but omits parentheses,
+        # infer a simple parameter from the function/task wording.
+        # Example:
+        # "Add a new validate_score function ... score ..."
+        # should expect validate_score(score).
+        if function_name.lower().startswith("validate_"):
+            score_match = re.search(
+                r"\bscore\b",
+                task,
+                flags=re.IGNORECASE,
+            )
+            if score_match:
+                return ["score"]
+
         return None
 
     raw = match.group(1).strip()
@@ -457,6 +481,7 @@ def generate_plan_and_patch(task, files):
         )
 
         result = normalize_generated_result(task, parse_model_json(content))
+        result["task"] = task
 
         validate_requested_function_edits(
             result,
@@ -500,6 +525,7 @@ def generate_plan_and_patch(task, files):
             )
 
             result = normalize_generated_result(task, parse_model_json(content))
+            result["task"] = task
 
             validate_requested_function_edits(
                 result,
@@ -606,6 +632,7 @@ def generate_plan_and_patch(task, files):
                 task,
                 parse_model_json(content),
             )
+            result["task"] = task
 
             validate_requested_function_edits(
                 result,
@@ -668,8 +695,92 @@ def apply_result(
         "pytest -q",
     )
 
-    validate_task_contract(task, result)
+    # Validate the developer task contract first.
+    validate_task_contract(
+        task,
+        result,
+    )
 
+    # ---------------------------------------------------------
+    # PRE-FLIGHT DUPLICATE FUNCTION CHECK
+    # ---------------------------------------------------------
+
+    existing_functions_by_file = {}
+
+    for file in files or []:
+        path = str(
+            file.get("path", "")
+        ).replace("\\", "/")
+
+        content = str(
+            file.get("content", "")
+        )
+
+        if not path.endswith(".py"):
+            continue
+
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            continue
+
+        existing_names = {
+            node.name
+            for node in tree.body
+            if isinstance(
+                node,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                ),
+            )
+        }
+
+        existing_functions_by_file[path] = existing_names
+
+    for edit in result.get("edits", []):
+        if not isinstance(edit, dict):
+            continue
+
+        if edit.get("operation") != "add_function":
+            continue
+
+        path = str(
+            edit.get("path", "")
+        ).replace("\\", "/")
+
+        code = str(
+            edit.get("code", "")
+        )
+
+        try:
+            generated_functions = extract_function_names(code)
+        except SyntaxError as exc:
+            raise TaskContractError(
+                f"Generated add_function code is invalid Python: {exc}"
+            ) from exc
+
+        if len(generated_functions) != 1:
+            raise TaskContractError(
+                "An add_function edit must contain exactly one function."
+            )
+
+        generated_name = generated_functions[0]
+
+        existing_names = existing_functions_by_file.get(
+            path,
+            set(),
+        )
+
+        if generated_name in existing_names:
+            raise TaskContractError(
+                f"The AI attempted to add existing function "
+                f"'{generated_name}' to '{path}'. "
+                "Use replace_function only when the developer "
+                "explicitly requested that existing function to be changed."
+            )
+
+    # Apply only after all safety checks pass.
     changes = apply_structured_edits(
         result.get("edits", []),
         files,
@@ -684,31 +795,37 @@ def apply_result(
 
     return result
 
-
 def extract_requested_new_functions(task):
     """
     Extract function names explicitly requested as new functions.
 
-    Examples:
+    Supports requests such as:
 
+        Add a calculate_average function
         Add a calculate_average(numbers) function
-        Create function calculate_total(items)
-        Implement a new function named normalize_data
+        Add a new validate_score function
+        Create function calculate_total
+        Create a new function named normalize_data
+        Implement normalize_data(data) function
 
     Returns only names that appear to be requested additions.
     """
 
-    text = str(task)
+    text = str(task or "")
 
     found = []
 
     patterns = [
         # "Add a calculate_average(numbers) function"
+        # "Add a new validate_score function"
         r"\b(?:add|create|implement|write|define)\s+"
         r"(?:a\s+|an\s+|the\s+)?"
         r"(?:new\s+)?"
+        r"(?:function\s+)?"
+        r"(?:called\s+|named\s+)?"
         r"`?([A-Za-z_][A-Za-z0-9_]*)`?"
-        r"\s*\([^)]*\)\s+function\b",
+        r"(?:\s*\([^)]*\))?"
+        r"\s+function\b",
 
         # "Add function calculate_average"
         r"\b(?:add|create|implement|write|define)\s+"
@@ -721,11 +838,22 @@ def extract_requested_new_functions(task):
         # "add a new function named calculate_average"
         r"\b(?:add|create|implement|write|define)\s+"
         r"(?:a\s+|an\s+|the\s+)?"
-        r"(?:new\s+)?function\s+"
+        r"(?:new\s+)?"
+        r"function\s+"
         r"(?:called\s+|named\s+)"
         r"`?([A-Za-z_][A-Za-z0-9_]*)`?",
     ]
 
+    # Never treat natural-language keywords as function names.
+    reserved_words = {
+        "new",
+        "function",
+        "called",
+        "named",
+        "a",
+        "an",
+        "the",
+    }
     for pattern in patterns:
         for match in re.finditer(
             pattern,
@@ -734,11 +862,10 @@ def extract_requested_new_functions(task):
         ):
             name = match.group(1)
 
-            if name not in found:
+            if name.lower() not in reserved_words and name not in found:
                 found.append(name)
 
     return found
-
 
 def build_function_contract(function_names):
     """Create a deterministic function-name contract for the LLM."""
@@ -879,8 +1006,14 @@ def validate_requested_function_edits(
     required_functions,
 ):
     """
-    Deterministically verify that the model did not substitute another
-    function name for the developer's requested function.
+    Deterministically verify that the model generated exactly the
+    function requested by the developer.
+
+    This validation checks:
+      1. Function name
+      2. Target file
+      3. Function parameters
+      4. No unrelated add_function edits
     """
 
     if not required_functions:
@@ -891,7 +1024,7 @@ def validate_requested_function_edits(
         [],
     )
 
-    add_function_names = []
+    add_function_edits = []
 
     for edit in edits:
         if not isinstance(edit, dict):
@@ -909,27 +1042,37 @@ def validate_requested_function_edits(
         )
 
         if len(names) != 1:
-            raise ValueError(
-                "An add_function edit must contain "
-                "exactly one function."
+            raise TaskContractError(
+                "An add_function edit must contain exactly one function."
             )
 
-        add_function_names.append(
-            names[0]
+        add_function_edits.append(
+            edit
         )
 
-    # If the task requests a new production function,
-    # the model must actually create it.
+    # ---------------------------------------------------------
+    # 1. Requested function must exist.
+    # ---------------------------------------------------------
+
+    generated_names = []
+
+    for edit in add_function_edits:
+        generated_names.extend(
+            extract_function_names(
+                edit.get("code", "")
+            )
+        )
+
     missing = [
         name
         for name in required_functions
-        if name not in add_function_names
+        if name not in generated_names
     ]
 
     if missing:
         actual = (
-            ", ".join(add_function_names)
-            if add_function_names
+            ", ".join(generated_names)
+            if generated_names
             else "none"
         )
 
@@ -939,10 +1082,13 @@ def validate_requested_function_edits(
             f"Generated add_function name(s): {actual}."
         )
 
-    # No unrelated add_function is allowed.
+    # ---------------------------------------------------------
+    # 2. No unrelated functions.
+    # ---------------------------------------------------------
+
     unexpected = [
         name
-        for name in add_function_names
+        for name in generated_names
         if name not in required_functions
     ]
 
@@ -954,6 +1100,136 @@ def validate_requested_function_edits(
             "the developer may be added."
         )
 
+    # ---------------------------------------------------------
+    # 3. Check target file.
+    # ---------------------------------------------------------
+
+    task = str(
+        result.get("task", "")
+    )
+
+    target_file = extract_requested_target_file(
+        task
+    )
+
+    if target_file:
+        target_file = target_file.replace(
+            "\\",
+            "/",
+        )
+
+        matching_file = False
+
+        for edit in add_function_edits:
+            edit_path = str(
+                edit.get("path", "")
+            ).replace(
+                "\\",
+                "/",
+            )
+
+            if edit_path == target_file:
+                matching_file = True
+                break
+
+        if not matching_file:
+            actual_paths = [
+                str(
+                    edit.get("path", "")
+                ).replace(
+                    "\\",
+                    "/",
+                )
+                for edit in add_function_edits
+            ]
+
+            raise TaskContractError(
+                "The model generated the requested function "
+                "but placed it in the wrong file. "
+                f"Expected: {target_file}. "
+                f"Generated path(s): {actual_paths or 'none'}."
+            )
+
+    # ---------------------------------------------------------
+    # 4. Check exact requested parameters.
+    # ---------------------------------------------------------
+
+    for requested_name in required_functions:
+
+        expected_parameters = (
+            extract_requested_signature(
+                task,
+                requested_name,
+            )
+        )
+
+        if expected_parameters is None:
+            continue
+
+        for edit in add_function_edits:
+
+            functions = extract_function_definitions(
+                edit.get("code", "")
+            )
+
+            for function in functions:
+
+                if function.name != requested_name:
+                    continue
+
+                actual_parameters = [
+                    argument.arg
+                    for argument in function.args.args
+                ]
+
+                if actual_parameters != expected_parameters:
+                    raise TaskContractError(
+                        f"Function '{requested_name}' has "
+                        f"parameters {actual_parameters}, "
+                        f"but the task requested "
+                        f"{expected_parameters}."
+                    )
+
+    # ---------------------------------------------------------
+    # 5. Verify requested tests reference the function.
+    # ---------------------------------------------------------
+
+    task_lower = task.lower()
+
+    asks_for_tests = any(
+        word in task_lower
+        for word in [
+            "test",
+            "tests",
+            "unit test",
+            "pytest",
+        ]
+    )
+
+    if asks_for_tests:
+
+        for requested_name in required_functions:
+
+            found_test_reference = False
+
+            for edit in edits:
+
+                if edit.get("operation") != "add_test":
+                    continue
+
+                if _test_code_references_function(
+                    edit.get("code", ""),
+                    requested_name,
+                ):
+                    found_test_reference = True
+                    break
+
+            if not found_test_reference:
+                raise TaskContractError(
+                    "The task requested tests for "
+                    f"'{requested_name}', but the generated "
+                    "test code does not reference that function."
+                )
 
 def extract_function_names(code):
     """Extract top-level Python function names from a snippet."""
@@ -1805,5 +2081,3 @@ __all__ = [
     "generate_plan_and_patch",
     "parse_model_json",
 ]
-
-
