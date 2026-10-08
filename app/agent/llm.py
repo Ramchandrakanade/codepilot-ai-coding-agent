@@ -20,8 +20,14 @@ OLLAMA_MODEL = os.getenv(
 
 OPENROUTER_MODEL = os.getenv(
     "OPENROUTER_MODEL",
-    "openrouter/free",
+    "qwen/qwen3.8-27b:free",
 )
+
+OPENROUTER_FALLBACK_MODELS = [
+    "qwen/qwen3.8-27b:free",
+    "qwen/qwen3.6-plus:free",
+    "qwen/qwen3.6-plus-preview:free",
+]
 
 GEMINI_MODEL = os.getenv(
     "GEMINI_MODEL",
@@ -1149,7 +1155,16 @@ def generate_with_openrouter(
     prompt,
     system_prompt,
 ):
-    """Generate JSON through the OpenRouter API."""
+    """
+    Generate structured JSON through OpenRouter.
+
+    This implementation uses:
+      1. Explicit coding models instead of openrouter/free random routing.
+      2. OpenRouter model-level failover.
+      3. Strict JSON Schema.
+      4. Provider parameter enforcement.
+      5. Response Healing for malformed JSON.
+    """
 
     api_key = os.getenv(
         "OPENROUTER_API_KEY"
@@ -1160,8 +1175,77 @@ def generate_with_openrouter(
             "OPENROUTER_API_KEY is not configured."
         )
 
+    # If Render still has the old openrouter/free environment value,
+    # automatically replace it with the new deterministic coding model.
+    configured_model = OPENROUTER_MODEL
+
+    if configured_model == "openrouter/free":
+        configured_model = "qwen/qwen3.8-27b:free"
+
+    # Build a deterministic model fallback list.
+    models = []
+
+    for model in [
+        configured_model,
+        *OPENROUTER_FALLBACK_MODELS,
+    ]:
+        if model and model not in models:
+            models.append(model)
+
+    # ---------------------------------------------------------
+    # Strict schema for the Coding Agent result.
+    # ---------------------------------------------------------
+
+    coding_agent_schema = {
+        "type": "object",
+        "properties": {
+            "plan": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+            },
+            "edits": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {
+                            "type": "string"
+                        },
+                        "path": {
+                            "type": "string"
+                        },
+                        "code": {
+                            "type": "string"
+                        },
+                    },
+                    "required": [
+                        "operation",
+                        "path",
+                        "code",
+                    ],
+                    "additionalProperties": True,
+                },
+            },
+            "explanation": {
+                "type": "string"
+            },
+            "test_command": {
+                "type": "string"
+            },
+        },
+        "required": [
+            "plan",
+            "edits",
+            "explanation",
+            "test_command",
+        ],
+        "additionalProperties": True,
+    }
+
     payload = {
-        "model": OPENROUTER_MODEL,
+        "models": models,
         "messages": [
             {
                 "role": "system",
@@ -1173,9 +1257,34 @@ def generate_with_openrouter(
             },
         ],
         "temperature": 0,
-        "response_format": {
-            "type": "json_object",
+        "max_tokens": 6000,
+
+        # NEW:
+        # Force OpenRouter to use a provider that supports
+        # the structured-output parameters.
+        "provider": {
+            "require_parameters": True,
         },
+
+        # NEW:
+        # Strict JSON Schema instead of generic json_object.
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "coding_agent_result",
+                "strict": True,
+                "schema": coding_agent_schema,
+            },
+        },
+
+        # NEW:
+        # OpenRouter response healing helps repair malformed
+        # structured responses before they reach our parser.
+        "plugins": [
+            {
+                "id": "response-healing",
+            }
+        ],
     }
 
     body = json.dumps(
@@ -1187,7 +1296,7 @@ def generate_with_openrouter(
         "Content-Type": "application/json",
         "HTTP-Referer": os.getenv(
             "OPENROUTER_SITE_URL",
-            "http://localhost:5000",
+            "https://codepilot-ai-coding-agent.onrender.com",
         ),
         "X-Title": "CodePilot AI Coding Agent",
     }
@@ -1201,11 +1310,15 @@ def generate_with_openrouter(
 
     last_error = None
 
+    # OpenRouter handles model-level failover using the
+    # "models" array. We additionally retry transient failures.
     for attempt in range(2):
+
         try:
+
             with urlopen(
                 request,
-                timeout=90,
+                timeout=120,
             ) as response:
 
                 raw = response.read().decode(
@@ -1234,6 +1347,8 @@ def generate_with_openrouter(
                 "",
             )
 
+            # Some providers may return structured content
+            # as a list of text blocks.
             if isinstance(
                 content,
                 list,
@@ -1245,19 +1360,51 @@ def generate_with_openrouter(
                 )
 
             if not str(content).strip():
+
+                refusal = message.get(
+                    "refusal"
+                )
+
+                if refusal:
+                    raise RuntimeError(
+                        "OpenRouter model refused the request: "
+                        f"{refusal}"
+                    )
+
                 raise RuntimeError(
                     "OpenRouter returned empty model output."
                 )
 
+            # Verify JSON immediately before returning.
+            # This prevents invalid content from reaching
+            # the rest of the coding agent.
+            try:
+                json.loads(
+                    str(content)
+                )
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "OpenRouter returned invalid JSON "
+                    "even after structured-output enforcement: "
+                    f"{exc}"
+                ) from exc
+
+            # The actual model used can be returned by OpenRouter.
+            actual_model = data.get(
+                "model"
+            ) or configured_model
+
             return str(content)
 
         except HTTPError as exc:
+
             last_error = _format_http_error(
                 "OpenRouter",
                 exc,
             )
 
             if exc.code in {
+                408,
                 429,
                 500,
                 502,
@@ -1266,6 +1413,7 @@ def generate_with_openrouter(
             } and attempt == 0:
 
                 time.sleep(2)
+
                 continue
 
             raise RuntimeError(
@@ -1273,37 +1421,71 @@ def generate_with_openrouter(
             ) from exc
 
         except URLError as exc:
+
             last_error = (
                 "OpenRouter network error: "
                 f"{exc.reason}"
             )
 
             if attempt == 0:
+
                 time.sleep(2)
+
                 continue
 
             raise RuntimeError(
                 last_error
             ) from exc
 
-        except TimeoutError as exc:
+        except TimeoutError:
+
             last_error = (
                 "OpenRouter request timed out."
             )
 
             if attempt == 0:
+
                 time.sleep(2)
+
+                continue
+
+            raise RuntimeError(
+                last_error
+            )
+
+        except json.JSONDecodeError as exc:
+
+            last_error = (
+                "OpenRouter returned invalid JSON: "
+                f"{exc}"
+            )
+
+            if attempt == 0:
+
+                time.sleep(2)
+
                 continue
 
             raise RuntimeError(
                 last_error
             ) from exc
 
+        except RuntimeError as exc:
+
+            last_error = str(exc)
+
+            if attempt == 0:
+
+                time.sleep(2)
+
+                continue
+
+            raise
+
     raise RuntimeError(
         last_error
         or "OpenRouter request failed."
     )
-
 
 def _format_http_error(
     provider,
@@ -1620,4 +1802,5 @@ __all__ = [
     "generate_plan_and_patch",
     "parse_model_json",
 ]
+
 
