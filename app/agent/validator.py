@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,32 @@ def _apply_changes_to_copy(
     return destination, changed_files
 
 
+
+def _check_python_syntax(changes: list[dict]) -> list[str]:
+    """Check proposed Python syntax without executing project code."""
+    errors = []
+
+    for change in changes:
+        path = change.get("path", "")
+        content = change.get("content")
+
+        if not path or not path.lower().endswith(".py"):
+            continue
+
+        if not isinstance(content, str):
+            errors.append(f"{path}: Python content must be text.")
+            continue
+
+        try:
+            ast.parse(content, filename=path)
+        except SyntaxError as exc:
+            errors.append(
+                f"{path}: invalid Python syntax at line "
+                f"{exc.lineno}: {exc.msg}"
+            )
+
+    return errors
+
 def run_validation(
     root: str = "sample_project",
     changes: list[dict] | None = None,
@@ -96,6 +123,21 @@ def run_validation(
                 "proposed change could not be validated."
             ),
             "changed_files": [],
+        }
+
+    syntax_errors = _check_python_syntax(changes)
+
+    if syntax_errors:
+        return {
+            "passed": False,
+            "status": "failed",
+            "return_code": 1,
+            "output": "Static syntax validation failed: " + "; ".join(syntax_errors),
+            "changed_files": [
+                change["path"]
+                for change in changes
+                if change.get("path")
+            ],
         }
 
     if not trusted_project:

@@ -297,3 +297,49 @@ def test_codebase_scanner_excludes_likely_secrets_and_large_files(tmp_path):
     assert "secrets.py" not in paths
     assert ".env" not in paths
     assert "large.py" not in paths
+
+def test_uploaded_project_invalid_python_fails_static_check(tmp_path):
+    from unittest.mock import patch
+    from app.agent.validator import run_validation
+
+    project = tmp_path / "uploaded_invalid"
+    project.mkdir()
+
+    changes = [
+        {"path": "app.py", "content": "def broken(:\n    pass\n"}
+    ]
+
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(project),
+            changes=changes,
+            trusted_project=False,
+        )
+
+    run.assert_not_called()
+    assert result["status"] == "failed"
+    assert result["passed"] is False
+    assert "invalid Python syntax" in result["output"]
+
+
+def test_uploaded_project_valid_python_still_skips_execution(tmp_path):
+    from unittest.mock import patch
+    from app.agent.validator import run_validation
+
+    project = tmp_path / "uploaded_valid"
+    project.mkdir()
+
+    changes = [
+        {"path": "app.py", "content": "VALUE = 1\n"}
+    ]
+
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(project),
+            changes=changes,
+            trusted_project=False,
+        )
+
+    run.assert_not_called()
+    assert result["status"] == "skipped"
+    assert result["passed"] is None
