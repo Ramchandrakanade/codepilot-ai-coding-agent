@@ -143,89 +143,19 @@ def run_validation(
             ],
         }
 
-    if not trusted_project:
-        return {
-            "passed": None,
-            "status": "skipped",
-            "return_code": None,
-            "output": (
-                "Validation skipped for uploaded projects. "
-                "Running untrusted project tests on the server is disabled; "
-                "an isolated sandbox is required."
-            ),
-            "changed_files": [
-                change["path"]
-                for change in changes
-                if change.get("path")
-            ],
-        }
-
-    temp_root = None
-
-    try:
-
-        temp_root, changed_files = (
-            _apply_changes_to_copy(
-                root,
-                changes,
-            )
-        )
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "--import-mode=importlib",
-            ],
-            cwd=temp_root,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        return {
-            "passed": result.returncode == 0,
-            "status": "passed" if result.returncode == 0 else "failed",
-            "return_code": result.returncode,
-            "output": (
-                result.stdout
-                + "\n"
-                + result.stderr
-            ).strip()[-4000:],
-            "changed_files": changed_files,
-        }
-
-    except subprocess.TimeoutExpired:
-
-        return {
-            "passed": False,
-            "status": "failed",
-            "return_code": 124,
-            "output": (
-                "Validation timed out after "
-                "60 seconds."
-            ),
-            "changed_files": [],
-        }
-
-    except Exception as exc:
-
-        return {
-            "passed": False,
-            "status": "failed",
-            "return_code": 1,
-            "output": (
-                f"Validation error: {exc}"
-            ),
-            "changed_files": [],
-        }
-
-    finally:
-
-        if temp_root:
-            shutil.rmtree(
-                temp_root.parent,
-                ignore_errors=True,
-            )
+    return {
+        "passed": None,
+        "status": "skipped",
+        "return_code": None,
+        "output": (
+            "Test execution is disabled until an isolated sandbox "
+            "is available. Static syntax validation completed."
+        ),
+        "changed_files": [
+            change["path"]
+            for change in changes
+            if isinstance(change, dict)
+            and isinstance(change.get("path"), str)
+            and change.get("path").strip()
+        ],
+    }

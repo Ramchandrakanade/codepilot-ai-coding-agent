@@ -252,7 +252,7 @@ def agent_run():
             run_agent(
                 task,
                 project_root,
-                trusted_project=upload_id is None,
+                trusted_project=False,
             )
         )
     except Exception:

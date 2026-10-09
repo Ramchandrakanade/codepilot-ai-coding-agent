@@ -64,24 +64,24 @@ def test_uploaded_project_validation_is_skipped(tmp_path):
     assert "sandbox" in result["output"].lower()
 
 
-def test_trusted_project_validation_still_runs(tmp_path):
+def test_trusted_project_validation_skips_execution(tmp_path):
+    from unittest.mock import patch
     from app.agent.validator import run_validation
 
     project = tmp_path / "trusted"
     project.mkdir()
-    (project / "test_ok.py").write_text(
-        "def test_ok():\n    assert True\n",
-        encoding="utf-8",
-    )
+    (project / "test_ok.py").write_text("def test_ok(): assert True")
 
-    result = run_validation(
-        root=str(project),
-        changes=[{"path": "app.py", "content": "VALUE = 1"}],
-        trusted_project=True,
-    )
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(project),
+            changes=[{"path": "app.py", "content": "VALUE = 1"}],
+            trusted_project=True,
+        )
 
-    assert result["status"] == "passed"
-    assert result["passed"] is True
+    run.assert_not_called()
+    assert result["status"] == "skipped"
+    assert result["passed"] is None
 
 
 def test_api_marks_uploaded_project_as_untrusted(tmp_path):
@@ -104,7 +104,7 @@ def test_api_marks_uploaded_project_as_untrusted(tmp_path):
     assert run_agent.call_args.kwargs["trusted_project"] is False
 
 
-def test_api_marks_bundled_project_as_trusted():
+def test_api_disables_execution_for_bundled_project():
     client = main.app.test_client()
 
     with patch.object(
@@ -116,7 +116,7 @@ def test_api_marks_bundled_project_as_trusted():
         )
 
     assert response.status_code == 200
-    assert run_agent.call_args.kwargs["trusted_project"] is True
+    assert run_agent.call_args.kwargs["trusted_project"] is False
 
 
 import io
