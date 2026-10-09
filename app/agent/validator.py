@@ -81,6 +81,7 @@ def _apply_changes_to_copy(
 def run_validation(
     root: str = "sample_project",
     changes: list[dict] | None = None,
+    trusted_project: bool = False,
 ) -> dict:
 
     changes = changes or []
@@ -88,12 +89,30 @@ def run_validation(
     if not changes:
         return {
             "passed": False,
+            "status": "failed",
             "return_code": 1,
             "output": (
                 "No AI patch was generated, so the "
                 "proposed change could not be validated."
             ),
             "changed_files": [],
+        }
+
+    if not trusted_project:
+        return {
+            "passed": None,
+            "status": "skipped",
+            "return_code": None,
+            "output": (
+                "Validation skipped for uploaded projects. "
+                "Running untrusted project tests on the server is disabled; "
+                "an isolated sandbox is required."
+            ),
+            "changed_files": [
+                change["path"]
+                for change in changes
+                if change.get("path")
+            ],
         }
 
     temp_root = None
@@ -123,6 +142,7 @@ def run_validation(
 
         return {
             "passed": result.returncode == 0,
+            "status": "passed" if result.returncode == 0 else "failed",
             "return_code": result.returncode,
             "output": (
                 result.stdout
@@ -136,6 +156,7 @@ def run_validation(
 
         return {
             "passed": False,
+            "status": "failed",
             "return_code": 124,
             "output": (
                 "Validation timed out after "
@@ -148,6 +169,7 @@ def run_validation(
 
         return {
             "passed": False,
+            "status": "failed",
             "return_code": 1,
             "output": (
                 f"Validation error: {exc}"

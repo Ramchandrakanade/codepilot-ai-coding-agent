@@ -8,6 +8,7 @@ from .validator import run_validation
 def run_agent(
     task: str,
     project_root: str = "sample_project",
+    trusted_project: bool = False,
 ) -> dict:
 
     if not task or len(task.strip()) < 5:
@@ -41,6 +42,7 @@ def run_agent(
     validation = run_validation(
         root=project_root,
         changes=changes,
+        trusted_project=trusted_project,
     )
 
     return {

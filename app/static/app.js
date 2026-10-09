@@ -400,21 +400,27 @@ $('run').onclick = async () => {
 
         if (data.validation) {
 
-            const passed =
-                Boolean(
-                    data.validation.passed
-                );
+            const skipped =
+                data.validation.status === 'skipped';
 
+            const passed =
+                Boolean(data.validation.passed);
+
+            const statusClass =
+                skipped ? '' : (passed ? 'pass' : 'fail');
+
+            const statusLabel =
+                skipped
+                    ? 'VALIDATION SKIPPED - SANDBOX REQUIRED'
+                    : (passed
+                        ? 'VALIDATION PASSED'
+                        : 'VALIDATION FAILED');
 
             $('validation').innerHTML = `
 
-                <span class="${passed ? 'pass' : 'fail'}">
+                <span class="${statusClass}">
 
-                    ${
-                        passed
-                            ? '✓ VALIDATION PASSED'
-                            : '✕ VALIDATION FAILED'
-                    }
+                    ${statusLabel}
 
                 </span>
 

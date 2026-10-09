@@ -19,3 +19,13 @@ qc_report.json
 Thumbs.db
 # Temporary uploaded CodePilot projects
 app/uploads/
+# Local security review backups
+app/main.py.backup
+security-fix-backup/
+security-review-backup-*/
+security-step*-backup-*/
+.gitignore.backup-*
+security-tests-backup-*/
+
+# Local main.py review backups
+app/main.py.backup-*

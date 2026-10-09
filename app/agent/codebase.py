@@ -30,39 +30,94 @@ ALLOWED_EXTENSIONS = {
 
 
 def scan_codebase(root: str = "sample_project") -> list[dict]:
-    """Read the small sample repository used by CodePilot."""
+    """Read a bounded set of project source files, excluding likely secrets."""
 
     base = Path(root)
-
-    if not base.exists():
+    if not base.exists() or not base.is_dir():
         raise FileNotFoundError(f"Codebase not found: {root}")
 
+    max_files = 2000
+    max_file_bytes = 256 * 1024
+    max_total_bytes = 2 * 1024 * 1024
+
+    blocked_names = {
+        ".env",
+        "credentials",
+        "credentials.json",
+        "secrets.json",
+        "service-account.json",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+        "id_dsa",
+    }
+    blocked_dirs = {
+        ".aws", ".ssh", ".azure", ".gcloud", "secrets", "credentials"
+    }
+    blocked_suffixes = {
+        ".pem", ".key", ".p12", ".pfx", ".p7b", ".p7c",
+        ".crt", ".cer", ".der",
+    }
+
     files = []
+    total_bytes = 0
+    inspected = 0
 
     for path in sorted(base.rglob("*")):
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
+            continue
+
+        try:
+            rel_path = path.relative_to(base).as_posix()
+        except ValueError:
+            continue
+
+        parts = Path(rel_path).parts
+        if any(part in IGNORED_DIRS or part in blocked_dirs for part in parts):
+            continue
+
+        name = path.name.lower()
+        if (
+            name in blocked_names
+            or name.startswith(".env.")
+            or path.suffix.lower() in blocked_suffixes
+            or re.search(
+                r"(secret|credential|password|private[_-]?key|api[_-]?key)",
+                name,
+            )
+        ):
             continue
 
         if path.suffix.lower() not in ALLOWED_EXTENSIONS:
             continue
 
-        if any(part in IGNORED_DIRS for part in path.parts):
+        inspected += 1
+        if inspected > max_files:
+            break
+
+        try:
+            size = path.stat().st_size
+            if size > max_file_bytes or total_bytes + size > max_total_bytes:
+                continue
+
+            with path.open("rb") as handle:
+                raw = handle.read(max_file_bytes + 1)
+            if len(raw) > max_file_bytes:
+                continue
+
+            text = raw.decode("utf-8", errors="ignore")
+        except (OSError, ValueError):
             continue
 
-        text = path.read_text(
-            encoding="utf-8",
-            errors="ignore",
-        )
+        total_bytes += len(raw)
+        files.append({
+            "path": rel_path,
+            "content": text,
+            "lines": len(text.splitlines()),
+        })
 
-        rel = path.relative_to(base).as_posix()
-
-        files.append(
-            {
-                "path": rel,
-                "content": text,
-                "lines": len(text.splitlines()),
-            }
-        )
+        if total_bytes >= max_total_bytes:
+            break
 
     return files
 

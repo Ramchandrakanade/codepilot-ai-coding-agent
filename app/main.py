@@ -1,3 +1,5 @@
+import os
+import re
 from pathlib import Path
 import stat
 import shutil
@@ -7,16 +9,78 @@ import zipfile
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 load_dotenv()
 
 from app.agent.orchestrator import run_agent
 
 app = Flask(__name__)
+
+# Require shared storage on Render; allow memory storage for local development.
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+IS_RENDER = os.getenv("RENDER", "").lower() == "true"
+
+if IS_RENDER and not REDIS_URL:
+    raise RuntimeError(
+        "REDIS_URL must be configured on Render before the application can start."
+    )
+
+RATE_LIMIT_STORAGE = REDIS_URL or "memory://"
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    storage_uri=RATE_LIMIT_STORAGE,
+    default_limits=[],
+    headers_enabled=True,
+    in_memory_fallback=["3 per minute"],
+    in_memory_fallback_enabled=True,
+    swallow_errors=False,
+)
+if not REDIS_URL:
+    app.logger.warning(
+        "REDIS_URL is not configured; rate limits use per-process memory storage."
+    )
+
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 
 UPLOAD_ROOT = Path(tempfile.gettempdir()) / "codepilot_uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=()"
+    )
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
+    )
+    return response
+
+
+@app.errorhandler(429)
+def rate_limit_exceeded(_error):
+    return jsonify({"error": "Too many requests. Please try again later."}), 429
+
+
+@app.errorhandler(413)
+def request_too_large(_error):
+    return jsonify({"error": "Request is too large."}), 413
+
 
 
 @app.get("/")
@@ -30,6 +94,7 @@ def health():
 
 
 @app.post("/api/project/upload")
+@limiter.limit("5 per minute; 20 per hour")
 def project_upload():
     uploaded = request.files.get("project")
 
@@ -137,27 +202,65 @@ def project_upload():
 
 
 @app.post("/api/agent/run")
+@limiter.limit("5 per minute; 30 per hour")
 def agent_run():
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
+    upload_id = payload.get("upload_id")
+    if upload_id is not None and (
+        not isinstance(upload_id, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", upload_id)
+    ):
+        return jsonify({"error": "Uploaded project was not found."}), 400
+
+    task = payload.get("task")
+    if not isinstance(task, str):
+        return jsonify({"error": "Task must be a string."}), 400
+
+    task = task.strip()
+    if not task:
+        return jsonify({"error": "Please enter a task."}), 400
+    if len(task) > 2000:
+        return jsonify({"error": "Task must not exceed 2000 characters."}), 400
+
     try:
-        task = payload.get("task", "")
-        upload_id = payload.get("upload_id")
         project_root = "sample_project"
 
-        if upload_id:
-            candidate = (UPLOAD_ROOT / str(upload_id) / "project").resolve()
-            expected_parent = (UPLOAD_ROOT / str(upload_id)).resolve()
-            if expected_parent not in candidate.parents or not candidate.is_dir():
+        if upload_id is not None:
+            upload_root = UPLOAD_ROOT.resolve()
+            workspace = (upload_root / upload_id).resolve()
+            candidate = (workspace / "project").resolve()
+
+            if (
+                workspace.parent != upload_root
+                or upload_root not in candidate.parents
+                or not candidate.is_dir()
+            ):
                 return jsonify({"error": "Uploaded project was not found."}), 400
 
             entries = list(candidate.iterdir())
-            project_root = str(entries[0] if len(entries) == 1 and entries[0].is_dir() else candidate)
+            project_root = str(
+                entries[0]
+                if len(entries) == 1 and entries[0].is_dir()
+                else candidate
+            )
 
-        return jsonify(run_agent(task, project_root))
+        return jsonify(
+            run_agent(
+                task,
+                project_root,
+                trusted_project=upload_id is None,
+            )
+        )
     except Exception:
         import logging
         logging.exception("Agent run failed")
-        return jsonify({"error": "Agent run failed. Please check the task and try again."}), 500
+        return jsonify({
+            "error": "Agent run failed. Please check the task and try again."
+        }), 500
 
 
 if __name__ == "__main__":

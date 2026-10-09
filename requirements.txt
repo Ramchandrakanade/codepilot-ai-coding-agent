@@ -6,3 +6,4 @@ python-dotenv>=1.0
 ollama>=0.4
 huggingface_hub>=0.35
 google-genai>=1.0
+Flask-Limiter[redis]>=3.8
