@@ -37,8 +37,8 @@ def run_agent(
         [],
     )
 
-    # 4. Validate the proposed AI changes in
-    #    an isolated temporary copy.
+    # 4. Perform static validation only.
+    #    Test execution is disabled until an isolated sandbox exists.
     validation = run_validation(
         root=project_root,
         changes=changes,
@@ -71,10 +71,12 @@ def run_agent(
             "",
         ),
 
+        # Informational only: the server does not execute this command.
         "test_command": result.get(
             "test_command",
             "pytest -q",
         ),
+        "test_command_executed": False,
 
         "validation": validation,
 
