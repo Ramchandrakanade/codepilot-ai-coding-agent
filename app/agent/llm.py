@@ -68,6 +68,7 @@ def extract_requested_functions(task):
     patterns = [
         r"\b(?:add|implement|write|define)\s+(?:a\s+|an\s+|new\s+)?([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s+function\b",
         r"\bcreate\s+(?:a\s+|an\s+|new\s+)?function\s+([A-Za-z_]\w*)\s*\(",
+        r"\b(?:named|called)\s+([A-Za-z_]\w*)\s*(?:\([^)]*\))?",
         r"\bfunction\s+([A-Za-z_]\w*)\s*\(",
         r"\bdef\s+([A-Za-z_]\w*)\s*\(",
     ]
@@ -81,6 +82,14 @@ def extract_requested_functions(task):
         "a",
         "an",
         "the",
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "c",
+        "cpp",
+        "golang",
+        "rust",
     }
     for pattern in patterns:
         for match in re.finditer(
