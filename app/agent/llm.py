@@ -1543,7 +1543,7 @@ def generate_with_openrouter(
             },
         ],
         "temperature": 0,
-        "max_tokens": 6000,
+        "max_tokens": 5000,
 
         # NEW:
         # Force OpenRouter to use a provider that supports
@@ -2132,3 +2132,4 @@ __all__ = [
     "generate_plan_and_patch",
     "parse_model_json",
 ]
+
