@@ -411,7 +411,7 @@ $('run').onclick = async () => {
 
             const statusLabel =
                 skipped
-                    ? 'VALIDATION SKIPPED - SANDBOX REQUIRED'
+                    ? 'TESTS NOT RUN - SANDBOX REQUIRED'
                     : (passed
                         ? 'VALIDATION PASSED'
                         : 'VALIDATION FAILED');
@@ -426,7 +426,7 @@ $('run').onclick = async () => {
 
                 <pre>
                     ${escapeHtml(
-                        data.validation.output || ''
+                        data.validation.output || (skipped ? 'Static syntax checks do not execute tests. Set up an isolated sandbox before running project tests.' : '')
                     )}
                 </pre>
 
