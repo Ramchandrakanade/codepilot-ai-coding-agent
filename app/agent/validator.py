@@ -8,6 +8,31 @@ import tempfile
 from pathlib import Path
 
 
+def _is_safe_patch_path(path_value: object) -> bool:
+    """Reject absolute paths and traversal on POSIX and Windows."""
+    from pathlib import PurePosixPath, PureWindowsPath
+
+    if not isinstance(path_value, str) or not path_value.strip():
+        return False
+    if chr(0) in path_value:
+        return False
+
+    normalized = path_value.replace("\\", "/")
+    posix_path = PurePosixPath(normalized)
+    windows_path = PureWindowsPath(path_value)
+
+    if posix_path.is_absolute() or windows_path.is_absolute():
+        return False
+    if windows_path.drive:
+        return False
+    if ".." in posix_path.parts:
+        return False
+    if normalized in ("", "."):
+        return False
+
+    return True
+
+
 def _apply_changes_to_copy(
     root: str,
     changes: list[dict],
@@ -45,6 +70,9 @@ def _apply_changes_to_copy(
                     f"Patch entry {index + 1} must have a non-empty string path."
                 )
 
+            if not _is_safe_patch_path(path_value):
+                raise ValueError(f"Unsafe patch path rejected: {path_value}")
+
             if not isinstance(new_content, str):
                 raise ValueError(
                     f"{path_value}: file content must be supplied as text."
@@ -67,14 +95,12 @@ def _apply_changes_to_copy(
 
 
 def _check_python_syntax(changes: list[dict]) -> list[str]:
-    """Validate patch structure and Python syntax without execution."""
+    """Validate patch structure, paths, and Python syntax without execution."""
     errors = []
 
     for index, change in enumerate(changes):
         if not isinstance(change, dict):
-            errors.append(
-                f"Patch entry {index + 1} must be an object."
-            )
+            errors.append(f"Patch entry {index + 1} must be an object.")
             continue
 
         path = change.get("path")
@@ -85,12 +111,14 @@ def _check_python_syntax(changes: list[dict]) -> list[str]:
             )
             continue
 
+        if not _is_safe_patch_path(path):
+            errors.append(f"Unsafe patch path rejected: {path}")
+            continue
+
         source = change.get("content")
 
         if not isinstance(source, str):
-            errors.append(
-                f"{path}: file content must be supplied as text."
-            )
+            errors.append(f"{path}: file content must be supplied as text.")
             continue
 
         if not path.lower().endswith(".py"):
@@ -105,6 +133,7 @@ def _check_python_syntax(changes: list[dict]) -> list[str]:
             )
 
     return errors
+
 
 def run_validation(
     root: str = "sample_project",

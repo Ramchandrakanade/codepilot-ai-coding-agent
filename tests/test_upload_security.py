@@ -446,3 +446,24 @@ def test_patch_rejection_cleans_up_temporary_directory(tmp_path, monkeypatch):
 
     assert len(created_dirs) == len(invalid_cases)
     assert all(not path.exists() for path in created_dirs)
+
+def test_static_validation_rejects_unsafe_paths(tmp_path):
+    from app.agent.validator import run_validation
+
+    unsafe_paths = [
+        "../outside.py",
+        r"..\outside.py",
+        r"C:\outside.py",
+        "/outside.py",
+        "//server/share/outside.py",
+    ]
+
+    for path in unsafe_paths:
+        result = run_validation(
+            root=str(tmp_path),
+            changes=[{"path": path, "content": "VALUE = 1\\n"}],
+            trusted_project=False,
+        )
+
+        assert result["status"] == "failed", path
+        assert "Unsafe patch path rejected" in result["output"], path
