@@ -690,3 +690,13 @@ A PDF version of the project documentation can also be included in the repositor
 docs/
 └── CodePilot_AI_README.pdf
 ```
+
+## Current Validation Limitation
+
+The deployed agent checks patch structure, rejects unsafe patch paths, and validates Python syntax without executing generated code. It reports `TESTS NOT RUN - SANDBOX REQUIRED` until isolated test execution is configured. This is an intentional security limitation, not a passing test result.
+
+Run the repository's own tests locally with:
+
+```powershell
+python -m pytest -q --import-mode=importlib
+```
