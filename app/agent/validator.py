@@ -12,91 +12,92 @@ def _apply_changes_to_copy(
     root: str,
     changes: list[dict],
 ) -> tuple[Path, list[str]]:
-
     source = Path(root).resolve()
+    temp_dir = Path(tempfile.mkdtemp(prefix="codepilot_validation_"))
 
-    temp_dir = Path(
-        tempfile.mkdtemp(
-            prefix="codepilot_validation_"
-        )
-    )
+    try:
+        destination = temp_dir / source.name
 
-    destination = temp_dir / source.name
-
-    shutil.copytree(
-        source,
-        destination,
-        ignore=shutil.ignore_patterns(
-            ".git",
-            "__pycache__",
-            ".pytest_cache",
-            "*.pyc",
-        ),
-    )
-
-    changed_files = []
-
-    for change in changes:
-
-        path_value = change.get("path")
-        new_content = change.get("content")
-
-        if not path_value:
-            continue
-
-        if new_content is None:
-            raise ValueError(
-                f"No complete file content supplied for {path_value}"
-            )
-
-        target = (
-            destination / path_value
-        ).resolve()
-
-        # Security check.
-        if (
-            destination not in target.parents
-            and target != destination
-        ):
-            raise ValueError(
-                f"Unsafe patch path rejected: {path_value}"
-            )
-
-        target.parent.mkdir(
-            parents=True,
-            exist_ok=True,
+        shutil.copytree(
+            source,
+            destination,
+            ignore=shutil.ignore_patterns(
+                ".git",
+                "__pycache__",
+                ".pytest_cache",
+                "*.pyc",
+            ),
         )
 
-        target.write_text(
-            new_content,
-            encoding="utf-8",
-        )
+        changed_files = []
 
-        changed_files.append(
-            path_value
-        )
+        for index, change in enumerate(changes):
+            if not isinstance(change, dict):
+                raise ValueError(
+                    f"Patch entry {index + 1} must be an object."
+                )
 
-    return destination, changed_files
+            path_value = change.get("path")
+            new_content = change.get("content")
 
+            if not isinstance(path_value, str) or not path_value.strip():
+                raise ValueError(
+                    f"Patch entry {index + 1} must have a non-empty string path."
+                )
+
+            if not isinstance(new_content, str):
+                raise ValueError(
+                    f"{path_value}: file content must be supplied as text."
+                )
+
+            target = (destination / path_value).resolve()
+
+            if destination not in target.parents and target != destination:
+                raise ValueError(f"Unsafe patch path rejected: {path_value}")
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(new_content, encoding="utf-8")
+            changed_files.append(path_value)
+
+        return destination, changed_files
+
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
 
 
 def _check_python_syntax(changes: list[dict]) -> list[str]:
-    """Check proposed Python syntax without executing project code."""
+    """Validate patch structure and Python syntax without execution."""
     errors = []
 
-    for change in changes:
-        path = change.get("path", "")
-        content = change.get("content")
-
-        if not path or not path.lower().endswith(".py"):
+    for index, change in enumerate(changes):
+        if not isinstance(change, dict):
+            errors.append(
+                f"Patch entry {index + 1} must be an object."
+            )
             continue
 
-        if not isinstance(content, str):
-            errors.append(f"{path}: Python content must be text.")
+        path = change.get("path")
+
+        if not isinstance(path, str) or not path.strip():
+            errors.append(
+                f"Patch entry {index + 1} must have a non-empty string path."
+            )
+            continue
+
+        source = change.get("content")
+
+        if not isinstance(source, str):
+            errors.append(
+                f"{path}: file content must be supplied as text."
+            )
+            continue
+
+        if not path.lower().endswith(".py"):
             continue
 
         try:
-            ast.parse(content, filename=path)
+            ast.parse(source, filename=path)
         except SyntaxError as exc:
             errors.append(
                 f"{path}: invalid Python syntax at line "
@@ -136,7 +137,9 @@ def run_validation(
             "changed_files": [
                 change["path"]
                 for change in changes
-                if change.get("path")
+                if isinstance(change, dict)
+                and isinstance(change.get("path"), str)
+                and change.get("path")
             ],
         }
 

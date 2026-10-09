@@ -343,3 +343,106 @@ def test_uploaded_project_valid_python_still_skips_execution(tmp_path):
     run.assert_not_called()
     assert result["status"] == "skipped"
     assert result["passed"] is None
+
+def test_malformed_patch_path_returns_validation_error(tmp_path):
+    from unittest.mock import patch
+    from app.agent.validator import run_validation
+
+    changes = [{"path": 7, "content": "VALUE = 1"}]
+
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(tmp_path),
+            changes=changes,
+            trusted_project=False,
+        )
+
+    run.assert_not_called()
+    assert result["status"] == "failed"
+    assert "string path" in result["output"]
+
+
+def test_non_dictionary_patch_returns_validation_error(tmp_path):
+    from unittest.mock import patch
+    from app.agent.validator import run_validation
+
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(tmp_path),
+            changes=["unexpected patch entry"],
+            trusted_project=False,
+        )
+
+    run.assert_not_called()
+    assert result["status"] == "failed"
+    assert "must be an object" in result["output"]
+
+def test_uploaded_non_python_patch_missing_content_fails(tmp_path):
+    from unittest.mock import patch
+    from app.agent.validator import run_validation
+
+    changes = [{"path": "README.md"}]
+
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(tmp_path),
+            changes=changes,
+            trusted_project=False,
+        )
+
+    run.assert_not_called()
+    assert result["status"] == "failed"
+    assert "content must be supplied as text" in result["output"]
+
+
+def test_uploaded_non_python_patch_none_content_fails(tmp_path):
+    from unittest.mock import patch
+    from app.agent.validator import run_validation
+
+    changes = [{"path": "README.md", "content": None}]
+
+    with patch("app.agent.validator.subprocess.run") as run:
+        result = run_validation(
+            root=str(tmp_path),
+            changes=changes,
+            trusted_project=False,
+        )
+
+    run.assert_not_called()
+    assert result["status"] == "failed"
+    assert "content must be supplied as text" in result["output"]
+
+def test_patch_rejection_cleans_up_temporary_directory(tmp_path, monkeypatch):
+    import tempfile
+    from pathlib import Path
+    from app.agent import validator
+
+    project = tmp_path / "cleanup_project"
+    project.mkdir()
+    (project / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    created_dirs = []
+    original_mkdtemp = tempfile.mkdtemp
+
+    def tracked_mkdtemp(*args, **kwargs):
+        path = original_mkdtemp(*args, **kwargs)
+        created_dirs.append(Path(path))
+        return path
+
+    monkeypatch.setattr(validator.tempfile, "mkdtemp", tracked_mkdtemp)
+
+    invalid_cases = [
+        [{"path": "../outside.txt", "content": "test"}],
+        ["unexpected patch entry"],
+    ]
+
+    for changes in invalid_cases:
+        try:
+            validator._apply_changes_to_copy(str(project), changes)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Invalid patch was accepted: {changes!r}")
+
+    assert len(created_dirs) == len(invalid_cases)
+    assert all(not path.exists() for path in created_dirs)
