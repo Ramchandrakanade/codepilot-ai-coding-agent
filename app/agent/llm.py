@@ -825,6 +825,14 @@ def extract_requested_new_functions(task):
     found = []
 
     patterns = [
+        # "Write a Python function named is_even(number)"
+        r"\b(?:add|create|implement|write|define)\s+"
+        r"(?:a\s+|an\s+|the\s+)?"
+        r"(?:new\s+)?"
+        r"(?:[A-Za-z][A-Za-z0-9_+#.-]*\s+)?"
+        r"function\s+(?:called\s+|named\s+)"
+        r"`?([A-Za-z_][A-Za-z0-9_]*)`?",
+
         # "Add a calculate_average(numbers) function"
         # "Add a new validate_score function"
         r"\b(?:add|create|implement|write|define)\s+"
@@ -859,6 +867,22 @@ def extract_requested_new_functions(task):
         "function",
         "called",
         "named",
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "c",
+        "cpp",
+        "golang",
+        "rust",
+        "ruby",
+        "php",
+        "swift",
+        "kotlin",
+        "scala",
+        "sql",
+        "bash",
+        "powershell",
         "a",
         "an",
         "the",
