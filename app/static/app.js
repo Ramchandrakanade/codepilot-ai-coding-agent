@@ -3,6 +3,36 @@
 let uploadedProjectId = null;
 
 
+async function readApiResponse(response) {
+    const body = await response.text();
+    let data;
+
+    try {
+        data = body ? JSON.parse(body) : {};
+    } catch {
+        const isHtml = /^\s*(?:<!doctype\s+html|<html\b)/i.test(body);
+        const message = isHtml
+            ? `Server returned an HTML page instead of JSON (HTTP ${response.status}).`
+            : `Server returned an invalid response (HTTP ${response.status}).`;
+
+        throw new Error(
+            `${message} Please retry. If the problem continues, check the Render logs.`
+        );
+    }
+
+    if (!response.ok) {
+        throw new Error(
+            data && typeof data.error === "string"
+                ? data.error
+                : `Request failed with HTTP ${response.status}.`
+        );
+    }
+
+    return data;
+}
+
+
+
 // ============================================
 // Example task
 // ============================================
@@ -109,7 +139,7 @@ $('projectZip').addEventListener(
 
 
             const data =
-                await response.json();
+                await readApiResponse(response);
 
 
             if (!response.ok) {
@@ -247,7 +277,7 @@ $('run').onclick = async () => {
 
 
         const data =
-            await response.json();
+            await readApiResponse(response);
 
 
         if (!response.ok) {
