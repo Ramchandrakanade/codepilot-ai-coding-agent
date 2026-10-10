@@ -568,6 +568,79 @@ def generate_plan_and_patch(task, files):
             )
 
     # ---------------------------------------------------------
+    # Generic correction for malformed replace_function edits.
+    # Do not retry provider/network errors as code-generation errors.
+    target_error = str(primary_error).lower()
+
+    target_error_markers = (
+        "replace_function without a target",
+        "does not exist in",
+        "exactly one replacement function",
+    )
+
+    if (
+        not required_functions
+        and isinstance(primary_error, TaskContractError)
+        and any(marker in target_error for marker in target_error_markers)
+    ):
+        try:
+            correction_prompt = f"""
+{prompt}
+
+IMPORTANT CORRECTION:
+The previous structured edit failed validation.
+
+Validation error:
+{primary_error}
+
+Return corrected JSON using the original structured-edit schema.
+
+Rules:
+- For replace_function, target must be an existing top-level
+  function name in the specified source file.
+- Replacement code must define exactly one top-level function
+  with the same name as target.
+- Do not guess function names.
+- For other operations, target must be an empty string.
+- Preserve the user's requested behavior.
+- Return JSON only.
+"""
+
+            content, model_name, provider_name = (
+                generate_with_selected_provider(
+                    correction_prompt,
+                    SYSTEM_PROMPT,
+                )
+            )
+
+            result = normalize_generated_result(
+                task,
+                parse_model_json(content),
+            )
+            result["task"] = task
+
+            validate_requested_function_edits(
+                result,
+                required_functions,
+            )
+            validate_task_contract(task, result)
+
+            result = apply_result(
+                result,
+                task,
+                files,
+                model_name,
+                provider_name,
+            )
+            return result
+
+        except Exception as correction_error:
+            primary_error = RuntimeError(
+                "The controlled target-correction attempt failed. "
+                "Provider fallback will now be attempted.\n\n"
+                f"Original validation error: {primary_error}\n\n"
+                f"Correction error: {correction_error}"
+            )
     # Provider fallback chain.
     #
     # Primary provider is AI_PROVIDER.
@@ -684,6 +757,53 @@ def generate_plan_and_patch(task, files):
     raise primary_error
 
 
+
+def validate_edit_targets(result, files):
+    # Reject malformed replace_function edits before applying any changes.
+    file_map = {
+        str(file.get("path", "")).replace("\\", "/"): str(file.get("content", ""))
+        for file in (files or [])
+    }
+
+    for index, edit in enumerate(result.get("edits", []) or []):
+        if not isinstance(edit, dict) or edit.get("operation") != "replace_function":
+            continue
+
+        path = str(edit.get("path", "")).replace("\\", "/")
+        target = str(edit.get("target", "") or "").strip()
+        if not target:
+            raise TaskContractError(
+                f"Edit {index + 1} uses replace_function without a target. "
+                "Retry with the exact existing function name; never guess it."
+            )
+        if path not in file_map:
+            raise TaskContractError(f"Edit {index + 1} targets unknown file '{path}'.")
+
+        try:
+            source_tree = ast.parse(file_map[path])
+            replacement_tree = ast.parse(str(edit.get("code", "")))
+        except SyntaxError as exc:
+            raise TaskContractError(
+                f"Edit {index + 1} has invalid Python while validating target '{target}': {exc}"
+            ) from exc
+
+        existing_names = {
+            node.name for node in source_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        replacements = [
+            node for node in replacement_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        if target not in existing_names:
+            raise TaskContractError(
+                f"Edit {index + 1} targets '{target}', but that function does not exist in '{path}'. Do not guess a target."
+            )
+        if len(replacements) != 1 or replacements[0].name != target:
+            raise TaskContractError(
+                f"Edit {index + 1} must contain exactly one replacement function named '{target}'."
+            )
+
 def apply_result(
     result,
     task,
@@ -788,6 +908,9 @@ def apply_result(
                 "Use replace_function only when the developer "
                 "explicitly requested that existing function to be changed."
             )
+
+    # Validate replacement targets before applying structured edits.
+    validate_edit_targets(result, files)
 
     # Apply only after all safety checks pass.
     changes = apply_structured_edits(
@@ -1721,27 +1844,53 @@ def generate_with_openrouter(
 
         except HTTPError as exc:
 
-            last_error = _format_http_error(
-                "OpenRouter",
-                exc,
+            try:
+                error_body = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                error_body = ""
+
+            error_message = error_body[:500]
+            try:
+                error_payload = json.loads(error_body)
+                error_message = str(
+                    error_payload.get("error", {}).get("message") or error_message
+                )
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+            last_error = f"OpenRouter HTTP {exc.code}: {error_message}"
+            affordable = re.search(
+                r"can only afford\s+(\d+)\s+tokens?",
+                error_message,
+                flags=re.IGNORECASE,
             )
+            if exc.code == 402 and attempt == 0 and affordable:
+                budget = int(affordable.group(1))
+                reduced = budget - max(64, int(budget * 0.05))
+                if 512 <= reduced < int(payload["max_tokens"]):
+                    payload["max_tokens"] = reduced
+                    body = json.dumps(payload).encode("utf-8")
+                    request = Request(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        data=body, headers=headers, method="POST",
+                    )
+                    time.sleep(1)
+                    continue
+                last_error += (
+                    ". Reported output budget is too small for a safe retry; "
+                    "check OpenRouter credits or select a provider with working API access."
+                )
+                raise RuntimeError(last_error) from exc
 
-            if exc.code in {
-                408,
-                429,
-                500,
-                502,
-                503,
-                504,
-            } and attempt == 0:
-
+            if exc.code in {408, 429, 500, 502, 503, 504} and attempt == 0:
                 time.sleep(2)
-
                 continue
-
-            raise RuntimeError(
-                last_error
-            ) from exc
+            if exc.code == 402:
+                last_error += (
+                    ". Check OpenRouter account credits and model/provider pricing; "
+                    "automatic retries cannot fix an exhausted balance."
+                )
+            raise RuntimeError(last_error) from exc
 
         except URLError as exc:
 
