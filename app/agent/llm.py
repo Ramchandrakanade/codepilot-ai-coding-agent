@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ast
 import json
@@ -1576,7 +1576,7 @@ def generate_with_openrouter(
             },
         ],
         "temperature": 0,
-        "max_tokens": 4000,
+        "max_tokens": 3000,
 
         # NEW:
         # Force OpenRouter to use a provider that supports
