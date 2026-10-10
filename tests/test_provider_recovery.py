@@ -153,3 +153,49 @@ def test_failed_target_correction_uses_provider_fallback(monkeypatch):
     assert len(selected_calls) == 2
     assert fallback_calls == ["gemini"]
     assert len(applied) == 3
+
+def test_apply_result_rejects_invalid_replacement_before_applying(monkeypatch):
+    files = [
+        {
+            "path": "app.py",
+            "content": "def calculate():\n    return 1\n",
+        }
+    ]
+    result = {
+        "plan": [],
+        "edits": [
+            {
+                "operation": "replace_function",
+                "path": "app.py",
+                "target": "missing_function",
+                "code": "def missing_function():\n    return 2\n",
+            }
+        ],
+        "explanation": "Update calculation",
+        "test_command": "pytest -q",
+    }
+
+    applied = []
+
+    def should_not_apply(*args, **kwargs):
+        applied.append(True)
+        raise AssertionError(
+            "Edits must not be applied for an invalid target"
+        )
+
+    monkeypatch.setattr(
+        llm,
+        "apply_structured_edits",
+        should_not_apply,
+    )
+
+    with pytest.raises(llm.TaskContractError, match="does not exist"):
+        llm.apply_result(
+            result,
+            "Fix the existing calculation",
+            files,
+            "mock-model",
+            "mock-provider",
+        )
+
+    assert applied == []
