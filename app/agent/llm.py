@@ -659,12 +659,10 @@ Rules:
             fallback_providers.append("groq")
 
     elif AI_PROVIDER == "gemini":
-        # Gemini -> Groq -> OpenRouter
+        # Free-only fallback: Gemini -> Groq.
+        # Never fall back to OpenRouter when Gemini is the primary provider.
         if os.getenv("GROQ_API_KEY"):
             fallback_providers.append("groq")
-
-        if os.getenv("OPENROUTER_API_KEY"):
-            fallback_providers.append("openrouter")
 
     elif AI_PROVIDER == "groq":
         # Groq -> OpenRouter -> Gemini
