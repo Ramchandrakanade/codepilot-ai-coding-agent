@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ast
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from .sandbox_runner import run_pytest_in_sandbox
 
 
 def _is_safe_patch_path(path_value: object) -> bool:
@@ -172,19 +175,57 @@ def run_validation(
             ],
         }
 
+    changed_files = [
+        change["path"]
+        for change in changes
+        if isinstance(change, dict)
+        and isinstance(change.get("path"), str)
+        and change.get("path").strip()
+    ]
+
+    sandbox_enabled = os.getenv(
+        "CODEPILOT_ENABLE_E2B", ""
+    ).strip().lower() in {"1", "true", "yes"}
+
+    if trusted_project and sandbox_enabled:
+        validation_root = None
+        try:
+            validation_root, _ = _apply_changes_to_copy(root, changes)
+            result = run_pytest_in_sandbox(validation_root)
+            result["changed_files"] = changed_files
+            return result
+        except Exception as exc:
+            return {
+                "passed": None,
+                "status": "skipped",
+                "return_code": None,
+                "test_command_executed": False,
+                "output": (
+                    "Sandbox validation could not be completed: "
+                    f"{type(exc).__name__}. Static validation completed."
+                ),
+                "changed_files": changed_files,
+            }
+        finally:
+            if validation_root is not None:
+                shutil.rmtree(validation_root.parent, ignore_errors=True)
+
+    if not trusted_project:
+        message = (
+            "This project is not eligible for sandbox test execution. "
+            "Static syntax validation completed; tests were skipped."
+        )
+    else:
+        message = (
+            "E2B sandbox validation is disabled. "
+            "Static syntax validation completed; tests were skipped."
+        )
+
     return {
         "passed": None,
         "status": "skipped",
         "return_code": None,
-        "output": (
-            "Test execution is disabled until an isolated sandbox "
-            "is available. Static syntax validation completed."
-        ),
-        "changed_files": [
-            change["path"]
-            for change in changes
-            if isinstance(change, dict)
-            and isinstance(change.get("path"), str)
-            and change.get("path").strip()
-        ],
+        "test_command_executed": False,
+        "output": message,
+        "changed_files": changed_files,
     }

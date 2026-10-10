@@ -64,9 +64,11 @@ def test_uploaded_project_validation_is_skipped(tmp_path):
     assert "sandbox" in result["output"].lower()
 
 
-def test_trusted_project_validation_skips_execution(tmp_path):
+def test_trusted_project_validation_skips_execution(tmp_path, monkeypatch):
     from unittest.mock import patch
     from app.agent.validator import run_validation
+
+    monkeypatch.delenv("CODEPILOT_ENABLE_E2B", raising=False)
 
     project = tmp_path / "trusted"
     project.mkdir()
@@ -104,7 +106,7 @@ def test_api_marks_uploaded_project_as_untrusted(tmp_path):
     assert run_agent.call_args.kwargs["trusted_project"] is False
 
 
-def test_api_disables_execution_for_bundled_project():
+def test_api_marks_bundled_project_as_sandbox_eligible():
     client = main.app.test_client()
 
     with patch.object(
@@ -116,7 +118,7 @@ def test_api_disables_execution_for_bundled_project():
         )
 
     assert response.status_code == 200
-    assert run_agent.call_args.kwargs["trusted_project"] is False
+    assert run_agent.call_args.kwargs["trusted_project"] is True
 
 
 import io

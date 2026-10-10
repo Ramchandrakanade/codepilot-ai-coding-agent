@@ -76,7 +76,7 @@ def run_agent(
             "test_command",
             "pytest -q",
         ),
-        "test_command_executed": False,
+        "test_command_executed": bool(validation.get("test_command_executed", False)),
 
         "validation": validation,
 
