@@ -189,6 +189,7 @@ Return EXACTLY one JSON object with this structure:
       "path": "existing/file.py",
       "operation": "add_function",
       "code": "def example():\\n    return True",
+      "target": "",
       "summary": "Why this change is needed"
     }}
   ],
