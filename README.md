@@ -11,7 +11,7 @@
 [![AI Coding Agent](https://img.shields.io/badge/AI-Coding%20Agent-6C63FF?style=for-the-badge)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
 [![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-Web%20App-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
-[![Tests](https://img.shields.io/badge/Tests-18%20Passed-2EA44F?style=for-the-badge)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
+[![Tests](https://img.shields.io/badge/Tests-66%20Passed-2EA44F?style=for-the-badge)](https://github.com/Ramchandrakanade/codepilot-ai-coding-agent)
 
 <br><br>
 
@@ -509,7 +509,7 @@ python -m pytest -q --import-mode=importlib
 Current validation:
 
 ```
-22 passed
+66 passed
 ```
 
 The test suite validates the sample project and helps verify that generated changes preserve existing functionality.
