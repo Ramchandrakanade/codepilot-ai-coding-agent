@@ -29,6 +29,15 @@ SUPPORTED OPERATIONS:
    Replace an existing function ONLY when the developer explicitly asks
    for that existing function to be changed.
 
+EDIT TARGET RULES:
+- Every edit must include a "target" string.
+- For replace_function, target must be the exact name of the existing
+  function being replaced.
+- For every other operation, target must be an empty string.
+- Never use replace_function if the requested function cannot be
+  identified in the supplied repository files.
+- Never guess a function name to fill a missing target.
+
 5. append_text
    Append non-Python text to an existing file.
 

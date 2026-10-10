@@ -1538,11 +1538,15 @@ def generate_with_openrouter(
                         "code": {
                             "type": "string"
                         },
+                        "target": {
+                            "type": "string"
+                        },
                     },
                     "required": [
                         "operation",
                         "path",
                         "code",
+                        "target",
                     ],
                     "additionalProperties": True,
                 },
