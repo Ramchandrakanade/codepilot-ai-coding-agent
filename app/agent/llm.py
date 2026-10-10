@@ -1576,7 +1576,7 @@ def generate_with_openrouter(
             },
         ],
         "temperature": 0,
-        "max_tokens": 3000,
+        "max_tokens": 2000,
 
         # NEW:
         # Force OpenRouter to use a provider that supports
